@@ -1,0 +1,2689 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Шумомер</title>
+    <meta name="theme-color" content="#01644f">
+    <link rel="manifest" href="/multiframe-noisemeter/manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="/multiframe-noisemeter/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/multiframe-noisemeter/icon-512.png">
+    <style>
+        :root {
+            --accent: #01644f;
+            --accent-dark: #014d3d;
+            --text-main: #1f2a2e;
+            --surface: #ffffff;
+            --surface-muted: #f7f9f9;
+            --shadow: 0 10px 30px rgba(1, 100, 79, 0.12);
+            --radius: 14px;
+            --danger: #e53935;
+        }
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100dvh;
+            height: 100dvh;
+            margin: 0;
+            background-color: var(--surface);
+            color: var(--text-main);
+            overflow: hidden;
+        }
+        #app {
+            text-align: center;
+            padding: 24px;
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            width: 90%;
+            max-width: 520px;
+            border: 1px solid rgba(1, 100, 79, 0.08);
+            box-sizing: border-box;
+        }
+        /* Принудительный полноэкранный режим при активном fullscreen */
+        .fs #app {
+            width: 100vw;
+            height: 100dvh;
+            max-width: none;
+            max-height: none;
+            border-radius: 0;
+            box-shadow: none;
+            padding: 15px 15px 10px 15px;
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-rows: 5.2fr 0.8fr;
+            grid-template-areas:
+                'graph'
+                'bottom';
+            gap: 8px;
+            align-items: stretch;
+            position: relative;
+        }
+        .fs #spectrumWrap { 
+            grid-area: graph; 
+            position: relative; 
+            padding: 0 !important; 
+            border: none !important; 
+            margin: 0 !important;
+            background: transparent !important;
+            border-radius: 0 !important;
+            height: 100% !important;
+            width: 100% !important;
+        }
+        .fs #freqCanvas { height: 100% !important; width: 100% !important; max-height: none !important; min-height: none !important; }
+
+        /* Заголовок скрыт в fullscreen */
+        .fs h1 { display: none; }
+        /* Статус поверх графика, у верхней кромки канваса */
+        .fs #status {
+            grid-area: graph;
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: clamp(12px, 1.4vw, 18px);
+            margin: 0;
+            color: rgba(72, 98, 103, 0.6);
+            pointer-events: none;
+            background: transparent;
+            padding: 4px 8px;
+            border-radius: 0;
+            box-shadow: none;
+            z-index: 1000;
+        }
+
+        /* Нижняя область - правильная структура */
+        .fs .bottom-area {
+            grid-area: bottom;
+            display: grid;
+            grid-template-columns: 56% 44%;
+            grid-template-rows: 1fr;
+            gap: 40px;
+            align-items: flex-end;
+            padding: 0 20px 10px 20px;
+        }
+        
+        /* Левая колонка - измерения */
+        .fs .measurements-column {
+            grid-column: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: flex-start;
+            gap: 2px;
+            padding-bottom: 0;
+        }
+        
+        /* Метрики ДО/ПОСЛЕ/РАЗНИЦА - крупно и жирно */
+        .fs #avgBefore { 
+            text-align: left; 
+            font-size: 75px;
+            font-weight: 900;
+            margin: 8px 0 0 0;
+            color: var(--danger);
+            line-height: 1.0;
+        }
+        .fs #avgAfter { 
+            text-align: left; 
+            font-size: 75px;
+            font-weight: 900;
+            margin: 8px 0 0 0;
+            color: var(--accent);
+            line-height: 1.0;
+        }
+        .fs #diff {
+            text-align: left; 
+            font-size: 45px;
+            font-weight: 900;
+            margin: 8px 0 0 0;
+            color: #ffffff;
+            background-color: #585858;
+            padding: 10px 15px;
+            border-radius: 8px;
+            line-height: 1.0;
+            white-space: nowrap;
+            display: inline-block;
+        }
+        
+        /* Правая колонка - управление */
+        .fs .controls-panel {
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0;
+            height: 100%;
+            gap: 12px;
+        }
+
+        /* Секундомер - в центре, с анимацией */
+        .fs #duration {
+            font-size: 60px;
+            color: #233538;
+            text-align: center;
+            margin: 0;
+            font-weight: 700;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        
+        .fs #duration.pulse {
+            transform: scale(1.3);
+            opacity: 1;
+        }
+
+        /* Кнопки внизу */
+        .fs .row {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin: 0;
+        }
+        .fs button { 
+            font-size: 22px;
+            padding: 15px 25px; 
+            border-radius: 10px;
+            width: 220px;
+            background-color: #01644f;
+            color: #ffffff;
+            border: none;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        /* Экран запуска вне fullscreen */
+        #launchOverlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: #ffffff;
+            color: var(--accent);
+            z-index: 100;
+        }
+        #launchOverlay button {
+            font-size: 28px;
+            padding: 14px 28px;
+            border: 2px solid var(--accent);
+            background: #ffffff;
+            color: var(--accent);
+            border-radius: 12px;
+            cursor: pointer;
+        }
+        html:not(.fs) #launchOverlay { display: flex; }
+        html:not(.fs) #app { display: none; }
+        h1 {
+            margin-top: 0;
+            color: var(--accent);
+            letter-spacing: 0.3px;
+            margin-bottom: 8px;
+            font-size: clamp(20px, 3.6vw, 28px);
+        }
+        #status {
+            margin: 20px 0;
+            font-size: 18px;
+            color: #486267;
+        }
+        #avg {
+            font-size: clamp(28px, 6vw, 48px);
+            font-weight: 700;
+            color: var(--accent);
+            margin: 10px 0 4px 0;
+        }
+        #avgBefore, #avgAfter {
+            font-size: clamp(22px, 5.5vw, 40px);
+            font-weight: 800;
+            margin: 6px 0 2px 0;
+        }
+        #avgBefore { color: var(--danger); }
+        #avgAfter { color: var(--accent); }
+        #diff {
+            font-size: clamp(18px, 5vw, 32px);
+            font-weight: 600;
+            color: #ffffff;
+            background-color: #585858;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin: 6px 0 14px 0;
+            display: inline-block;
+        }
+        #duration {
+            font-size: 18px;
+            color: #233538;
+            margin: 6px 0;
+        }
+        /* АЧХ */
+        #spectrumWrap {
+            margin: 12px 0 6px 0;
+            background: var(--surface);
+            border: 1px solid rgba(1, 100, 79, 0.12);
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: none;
+        }
+        #freqCanvas {
+            width: 100%;
+            height: 28vh;
+            max-height: 260px;
+            min-height: 140px;
+            display: block;
+        }
+        
+        /* Убрать ограничения в fullscreen */
+        .fs #freqCanvas {
+            height: 100% !important;
+            max-height: none !important;
+            min-height: none !important;
+        }
+        
+        #avg.highlight {
+            font-size: 48px;
+            font-weight: bold;
+            margin-top: 10px;
+            color: var(--accent);
+        }
+        button {
+            padding: 18px 36px;
+            font-size: clamp(12px, 3.6vw, 29px);
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 9px;
+            background-color: var(--accent);
+            color: #ffffff;
+            box-shadow: 0 6px 16px rgba(1, 100, 79, 0.18);
+            transition: transform .2s ease, box-shadow .2s ease, background-color .2s ease;
+        }
+        button:hover {
+            background-color: var(--accent-dark);
+            box-shadow: 0 10px 22px rgba(1, 100, 79, 0.22);
+            transform: translateY(-1px);
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+        #toggleBtn.stop {
+            background: linear-gradient(0deg, rgba(1,100,79,0.08), rgba(1,100,79,0.08)), #ffffff;
+            color: var(--accent);
+            border: 1px solid rgba(1, 100, 79, 0.28);
+        }
+        #toggleBtn.stop:hover { background: #f2fbf8; }
+        #clearHistoryBtn { background-color: #2c3e40; }
+        #clearHistoryBtn:hover { background-color: #1f2a2e; }
+        #deviceList {
+            margin: 10px 0;
+            padding: 10px;
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid rgba(1, 100, 79, 0.25);
+            outline: none;
+            background: var(--surface-muted);
+            color: var(--text-main);
+        }
+        #history {
+            margin-top: 16px;
+            text-align: left;
+        }
+        #history h3 {
+            margin: 8px 0;
+            font-size: 18px;
+            color: var(--accent);
+        }
+        #historyList {
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 0;
+            margin: 0;
+            list-style: none;
+            border: 1px solid rgba(1, 100, 79, 0.12);
+            border-radius: 6px;
+            background: var(--surface);
+        }
+        #historyList li {
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(1, 100, 79, 0.08);
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        #historyList li:last-child { border-bottom: none; }
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+        }
+        @media (max-width: 600px) {
+            #avg.highlight { font-size: clamp(24px, 6.5vw, 34px); }
+            #app { padding: 18px 14px; }
+            .row { flex-wrap: nowrap; gap: 8px; }
+            button { flex: 1 1 0; }
+        }
+
+        @media (orientation: landscape) and (max-height: 520px) {
+            html:not(.fs) #freqCanvas { height: 40vh; min-height: 140px; }
+            html:not(.fs) #app { max-width: 680px; }
+            html:not(.fs) .row { gap: 6px; }
+            html:not(.fs) button { padding: 14px 29px; font-size: clamp(11px, 3vw, 24px); }
+        }
+
+
+        /* НОВЫЕ СТИЛИ ДЛЯ ПЛАНШЕТА С РАЗРЕШЕНИЕМ 2560x1600 */
+        @media (min-width: 2000px) and (min-height: 1200px) and (orientation: landscape) {
+            html, body { height: 100dvh; }
+            body { min-height: 100dvh; height: 100dvh; overflow: hidden; }
+            #app {
+                width: 100vw;
+                height: 100dvh;
+                max-width: none;
+                max-height: none;
+                border-radius: 0;
+                box-shadow: none;
+                padding: 15px 15px 10px 15px;
+                display: grid;
+                grid-template-columns: 1fr;
+                grid-template-rows: 5.2fr 0.8fr;
+                grid-template-areas:
+                    'graph'
+                    'bottom';
+                gap: 8px;
+                align-items: stretch;
+                position: relative;
+            }
+            h1 { display: none; }
+            #status {
+                grid-area: graph;
+                position: absolute;
+                top: 8px;
+                left: 50%;
+                transform: translateX(-50%);
+                text-align: center;
+                font-size: clamp(12px, 1.4vw, 18px);
+                background: transparent;
+                color: rgba(72, 98, 103, 0.6);
+                padding: 4px 8px;
+                border-radius: 0;
+                box-shadow: none;
+                z-index: 1000;
+            }
+            .fs #spectrumWrap { 
+                grid-area: graph; 
+                position: relative; 
+                padding: 0 !important; 
+                border: none !important; 
+                margin: 0 !important;
+                background: transparent !important;
+                border-radius: 0 !important;
+                height: 100% !important;
+                width: 100% !important;
+            }
+            .fs #freqCanvas { height: 100% !important; max-height: none !important; min-height: none !important; width: 100% !important; }
+            
+            .bottom-area {
+                grid-area: bottom;
+                display: grid;
+                grid-template-columns: 56% 44%;
+                grid-template-rows: 1fr;
+                gap: 40px;
+                align-items: flex-end;
+                padding: 0 20px 10px 20px;
+            }
+            
+            .measurements-column {
+                grid-column: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-end;
+                align-items: flex-start;
+                gap: 2px;
+                padding-bottom: 0;
+            }
+            
+            #avgBefore { 
+                text-align: left; 
+                font-size: 75px;
+                font-weight: 900;
+                margin: 8px 0 0 0;
+                color: var(--danger);
+                line-height: 1.0;
+            }
+            #avgAfter { 
+                text-align: left; 
+                font-size: 75px;
+                font-weight: 900;
+                margin: 8px 0 0 0;
+                color: var(--accent);
+                line-height: 1.0;
+            }
+            #diff {
+                text-align: left; 
+                font-size: 45px;
+                font-weight: 900;
+                margin: 8px 0 0 0;
+                color: #ffffff;
+                background-color: #585858;
+                padding: 10px 15px;
+                border-radius: 8px;
+                line-height: 1.0;
+                white-space: nowrap;
+                display: inline-block;
+            }
+            
+            .controls-panel {
+                grid-column: 2;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-end;
+                padding: 0;
+                height: 100%;
+                gap: 12px;
+            }
+            
+            #duration {
+                font-size: 60px;
+                color: #233538;
+                text-align: center;
+                margin: 0;
+                font-weight: 700;
+                transition: transform 0.3s ease, opacity 0.3s ease;
+            }
+            
+            #duration.pulse {
+                transform: scale(1.3);
+                opacity: 1;
+            }
+            
+            .row {
+                display: flex;
+                flex-direction: row;
+                justify-content: center;
+                align-items: center;
+                gap: 10px;
+                margin: 0;
+            }
+            
+            button { 
+                font-size: 22px;
+                padding: 15px 25px; 
+                border-radius: 10px;
+                width: 220px;
+                background-color: #01644f;
+                color: #ffffff;
+                border: none;
+                font-weight: bold;
+                text-transform: uppercase;
+            }
+        }
+
+        .note {
+            font-size: 14px;
+            color: #667d81;
+            margin-top: 20px;
+        }
+        
+        /* Анимация пульсации для кнопки Старт */
+        @keyframes pulse-button {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+        }
+        
+        #toggleBtn.pulse-attention {
+            animation: pulse-button 1.5s ease-in-out infinite;
+        }
+        
+        /* Кнопка калибровки */
+        #calibrationBtn {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            font-size: 14px;
+            background-color: transparent;
+            color: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            cursor: pointer;
+            z-index: 1001;
+            transition: all 0.2s ease;
+            box-shadow: none;
+        }
+        
+        #calibrationBtn:hover {
+            background-color: rgba(1, 100, 79, 0.1);
+            color: rgba(1, 100, 79, 0.5);
+            border: 1px solid rgba(1, 100, 79, 0.2);
+            box-shadow: none;
+        }
+        
+        .fs #calibrationBtn {
+            top: 15px;
+            right: 15px;
+            font-size: 16px;
+            padding: 10px 20px;
+        }
+        
+        /* Модальное окно калибровки */
+        #calibrationModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.75);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #calibrationModal.active {
+            display: flex;
+        }
+        
+        .calibration-panel {
+            background: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 90%;
+        }
+        
+        .calibration-panel h2 {
+            margin: 0 0 20px 0;
+            color: var(--accent);
+            font-size: 24px;
+        }
+        
+        .calibration-panel p {
+            margin: 0 0 20px 0;
+            color: #667d81;
+            line-height: 1.5;
+        }
+        
+        .calibration-input-group {
+            margin: 15px 0;
+        }
+        
+        .calibration-input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-main);
+            font-weight: 600;
+        }
+        
+        .calibration-input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(1, 100, 79, 0.25);
+            border-radius: 6px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        
+        .calibration-status {
+            margin: 20px 0;
+            padding: 15px;
+            background: var(--surface-muted);
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .calibration-status .current-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--accent);
+            margin: 10px 0;
+        }
+        
+        .calibration-status .offset-value {
+            font-size: 18px;
+            color: #667d81;
+            margin-top: 10px;
+        }
+        
+        .calibration-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .calibration-buttons button {
+            flex: 1;
+            padding: 14px;
+            font-size: 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .calibration-buttons .btn-primary {
+            background-color: var(--accent);
+            color: #ffffff;
+        }
+        
+        .calibration-buttons .btn-primary:hover {
+            background-color: var(--accent-dark);
+        }
+        
+        .calibration-buttons .btn-secondary {
+            background-color: #e0e0e0;
+            color: var(--text-main);
+        }
+        
+        .calibration-buttons .btn-secondary:hover {
+            background-color: #d0d0d0;
+        }
+        
+        .calibration-buttons .btn-danger {
+            background-color: var(--danger);
+            color: #ffffff;
+        }
+        
+        .calibration-buttons .btn-danger:hover {
+            background-color: #c62828;
+        }
+        
+        /* Стили для списка частот калибровки - компактная версия */
+        .frequency-item {
+            display: grid;
+            grid-template-columns: 70px 90px 120px 80px 1fr;
+            gap: 8px;
+            align-items: center;
+            padding: 8px 10px;
+            border: 1px solid rgba(1, 100, 79, 0.15);
+            border-radius: 6px;
+            margin-bottom: 8px;
+            background: #ffffff;
+            transition: all 0.2s ease;
+        }
+        
+        .frequency-item:hover {
+            box-shadow: 0 2px 8px rgba(1, 100, 79, 0.1);
+        }
+        
+        .frequency-item.completed {
+            background: #e8f5e9;
+            border-color: rgba(1, 100, 79, 0.3);
+        }
+        
+        .frequency-item.active {
+            background: #fff3e0;
+            border-color: #ff9800;
+            box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.2);
+        }
+        
+        .frequency-label {
+            font-weight: 700;
+            color: var(--accent);
+            font-size: 15px;
+        }
+        
+        .frequency-measured {
+            font-size: 13px;
+            color: #666;
+            text-align: center;
+        }
+        
+        .frequency-measured strong {
+            display: block;
+            font-size: 16px;
+            color: var(--accent);
+            font-weight: 700;
+        }
+        
+        .frequency-reference {
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .frequency-reference input {
+            width: 70px;
+            padding: 4px 6px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .frequency-reference input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .frequency-apply-btn {
+            padding: 6px 12px;
+            font-size: 13px;
+            background-color: var(--accent);
+            color: #ffffff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        
+        .frequency-apply-btn:hover {
+            background-color: var(--accent-dark);
+        }
+        
+        .frequency-apply-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .frequency-offset {
+            font-size: 12px;
+            color: #667d81;
+            text-align: right;
+        }
+        
+        .frequency-offset strong {
+            font-weight: 700;
+            color: var(--accent);
+            font-size: 13px;
+        }
+        
+        /* Обычные стили для не-fullscreen режима */
+        .bottom-area {
+            display: grid;
+            grid-template-columns: 70% 30%;
+            gap: 20px;
+            align-items: center;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .measurements-column {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .controls-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 15px;
+        }
+        
+        #diff {
+            font-size: 24px;
+            font-weight: 700;
+            color: #ffffff;
+            background-color: #585858;
+            padding: 8px 12px;
+            border-radius: 6px;
+            text-align: right;
+            display: inline-block;
+        }
+        
+        #duration {
+            font-size: 20px;
+            color: #666;
+            text-align: right;
+            font-weight: 600;
+        }
+        
+        .row {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+    </style>
+</head>
+<body>
+    <button id="calibrationBtn">⚙ Калибровка</button>
+    
+    <div id="calibrationModal">
+        <div class="calibration-panel" style="max-width: 600px; max-height: 90vh; overflow-y: auto;">
+            <h2 style="font-size: 20px; margin: 0 0 15px 0;">Калибровка микрофона</h2>
+            
+            <!-- БАЗОВАЯ КАЛИБРОВКА - РУЧНОЙ ВВОД -->
+            <div style="background: #f0f7f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid var(--accent);">
+                <h3 style="font-size: 16px; margin: 0 0 10px 0; color: var(--accent);">1. Базовая калибровка</h3>
+                <p style="font-size: 12px; margin: 0 0 12px 0; color: #667d81;">Введите значение BASE_CALIBRATION_OFFSET для базовой коррекции всех частот.</p>
+                
+                <div style="margin-bottom: 12px;">
+                    <label style="display: block; font-size: 12px; margin-bottom: 5px; color: #667d81;">BASE_CALIBRATION_OFFSET (дБ):</label>
+            <input type="number" id="baseCalibrationInput" 
+                           placeholder="34.0" 
+                           step="0.1" 
+                           min="-50" 
+                           max="100"
+                           value="39.0"
+                           style="width: 100%; padding: 12px; font-size: 18px; text-align: center; border: 1px solid var(--accent); border-radius: 6px; box-sizing: border-box; font-weight: 600;">
+                </div>
+                
+                <button id="baseCalibrationApplyBtn" class="btn-primary" style="width: 100%; padding: 10px; font-size: 13px; background: var(--accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">Применить</button>
+                
+                <div id="baseCalibrationOffset" style="margin-top: 10px; padding: 8px; background: #fff; border-radius: 6px; text-align: center; font-size: 13px; color: #667d81; border: 1px solid #ddd;">
+                    Текущее значение: <strong style="color: var(--accent);">+39.0 dB</strong>
+                </div>
+            </div>
+            
+            <!-- ЧАСТОТНАЯ КАЛИБРОВКА -->
+            <div style="margin-bottom: 15px;">
+                <h3 style="font-size: 16px; margin: 0 0 10px 0; color: var(--accent);">2. Частотная коррекция (тоны)</h3>
+                <p style="font-size: 12px; margin: 0 0 12px 0; color: #667d81;"><strong>Нажмите на частоту</strong> (например, "125 Гц"), чтобы начать воспроизведение тона. Введите показания профессионального прибора для коррекции.</p>
+            </div>
+            
+            <div id="calibrationFrequencyList" style="margin: 0;">
+                <!-- Список частот будет добавлен динамически -->
+            </div>
+
+            <!-- НАСТРОЙКА STP-ВЗВЕШИВАНИЯ -->
+            <div style="margin-top: 18px; padding: 14px; border-top: 1px solid #ddd; background:#fafcfc; border-radius: 8px;">
+                <h3 style="font-size: 16px; margin: 0 0 10px 0; color: var(--accent);">3. Настройка STP-взвешивания</h3>
+                <p style="font-size: 12px; margin: 0 0 10px 0; color: #667d81;">STP-взвешивание усиливает вклад 2–10 кГц и ослабляет НЧ до 700 Гц в фазе «После».</p>
+                <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#334; margin-bottom:10px;">
+                    <input type="checkbox" id="stpEnableAfter" checked>
+                    Применять STP-взвешивание в фазе «После»
+                </label>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div style="min-width:120px; font-size:12px; color:#667d81;">Сила эффекта:</div>
+                    <input id="stpStrength" type="range" min="0" max="150" step="1" value="100" style="flex:1;">
+                    <div id="stpStrengthLabel" style="width:46px; text-align:right; font-weight:700; color:var(--accent);">100%</div>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                <button class="btn-danger" id="calibrationResetBtn" style="flex: 1; padding: 10px; font-size: 14px;">Сбросить</button>
+                <button class="btn-secondary" id="calibrationCloseBtn" style="flex: 1; padding: 10px; font-size: 14px;">Закрыть</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="launchOverlay"><button id="launchBtn">ЗАПУСТИТЬ</button></div>
+    <div style="position:fixed; left:10px; bottom:10px; z-index:2000;">
+        <button id="installPwaBtn" style="display:none; padding:10px 14px; font-size:14px; border-radius:8px; border:1px solid rgba(1,100,79,0.3); background:#fff; color:#01644f;">Установить приложение</button>
+    </div>
+    <div id="app">
+        <h1>Измерение шума</h1>
+        <div id="status">Измерение уровня шума</div>
+        <div id="spectrumWrap">
+            <canvas id="freqCanvas"></canvas>
+        </div>
+        <div class="bottom-area">
+            <div class="measurements-column">
+                <div id="avgBefore">До: -- dB</div>
+                <div id="avgAfter">После: -- dB</div>
+                <div id="diff">Разница: -- dB</div>
+                <div id="avg" style="display:none">Среднее: -- dB</div>
+            </div>
+            <div class="controls-panel">
+                <div id="duration">10 секунд</div>
+                <div class="row">
+                    <button id="toggleBtn">Старт</button>
+                    <button id="resetBtn">Стоп</button>
+                </div>
+            </div>
+        </div>
+        <select id="deviceList" style="display:none;"></select>
+        <div id="history">
+            
+        </div>
+    </div>
+
+    <script>
+        // Регистрация service worker для PWA
+        (function registerSW(){
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function(){
+                    navigator.serviceWorker.register('/multiframe-noisemeter/service-worker.js', { scope: '/multiframe-noisemeter/' }).catch(function(e){
+                        console.warn('SW register failed', e);
+                    });
+                });
+            }
+        })();
+
+        // Кастомная кнопка установки PWA
+        let deferredPrompt = null;
+        const installBtn = document.getElementById('installPwaBtn');
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBtn.style.display = 'inline-block';
+        });
+        installBtn.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            installBtn.disabled = true;
+            try {
+                await deferredPrompt.prompt();
+                await deferredPrompt.userChoice;
+            } catch(e) {}
+            installBtn.style.display = 'none';
+            deferredPrompt = null;
+            installBtn.disabled = false;
+        });
+        // JavaScript код остается без изменений
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let javascriptNode = null;
+        let rafId = null;
+        let isMeasuring = false;
+        let startTimeMs = 0;
+        // Энергетическое усреднение для dB
+        let sumRms2 = 0;
+        let countFrames = 0;
+        // FOREVER-усреднение: накопитель мощности и числа кадров по фазам
+        let foreverBeforeSumRms2 = 0;
+        let foreverBeforeCountFrames = 0;
+        let foreverAfterSumRms2 = 0;
+        let foreverAfterCountFrames = 0;
+        // FOREVER-спектры по фазам (накапливаем линейную мощность амплитуды по бинам)
+        let foreverBeforeSpecSum = null; // Float64Array
+        let foreverAfterSpecSum = null;  // Float64Array
+        let deviceLabel = '';
+        
+        // Частотная калибровка
+        const CALIBRATION_FREQUENCIES = [125, 250, 500, 1000, 2000, 4000, 8000]; // Гц
+        // Финальные значения калибровки (утренние измерения, одна и та же петличка)
+        let frequencyCalibration = {
+            125:  { measured: 97.4, reference: 79.4, offset: -18.0 },
+            250:  { measured: 94.7, reference: 86.0, offset: -8.7 },
+            500:  { measured: 90.0, reference: 65.0, offset: -25.0 },
+            1000: { measured: 88.6, reference: 81.0, offset: -7.6 },
+            2000: { measured: 85.7, reference: 81.5, offset: -4.2 },
+            4000: { measured: 81.4, reference: 74.0, offset: -7.4 },
+            8000: { measured: 78.8, reference: 73.0, offset: -5.8 }
+        };
+        let isCalibrating = false;
+        let calibrationAudioContext = null;
+        let calibrationAnalyser = null;
+        let calibrationMicrophone = null;
+        let calibrationRafId = null;
+        let toneOscillator = null;
+        let toneGainNode = null;
+        let currentToneFreq = null;
+        
+        const diffElement = document.getElementById('diff');
+        const statusElement = document.getElementById('status');
+        const toggleBtn = document.getElementById('toggleBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const launchBtn = document.getElementById('launchBtn');
+        const deviceList = document.getElementById('deviceList');
+        const avgElement = document.getElementById('avg');
+        const avgBeforeEl = document.getElementById('avgBefore');
+        const avgAfterEl = document.getElementById('avgAfter');
+        const durationElement = document.getElementById('duration');
+        const historyListEl = null;
+        const clearHistoryBtn = null;
+        const freqCanvas = document.getElementById('freqCanvas');
+        
+        // Элементы калибровки
+        const calibrationBtn = document.getElementById('calibrationBtn');
+        const calibrationModal = document.getElementById('calibrationModal');
+        const calibrationResetBtn = document.getElementById('calibrationResetBtn');
+        const calibrationCloseBtn = document.getElementById('calibrationCloseBtn');
+        const referenceLevelInput = document.getElementById('referenceLevel');
+        const calibrationFrequencyList = document.getElementById('calibrationFrequencyList');
+        const calibrationResults = document.getElementById('calibrationResults');
+        const calibrationResultsText = document.getElementById('calibrationResultsText');
+        const baseCalibrationApplyBtn = document.getElementById('baseCalibrationApplyBtn');
+        const baseCalibrationInput = document.getElementById('baseCalibrationInput');
+        const baseCalibrationOffset = document.getElementById('baseCalibrationOffset');
+        // STP UI
+        let stpEnableAfterEl = null;
+        let stpStrengthEl = null;
+        let stpStrengthLabelEl = null;
+        
+        const freqCtx = freqCanvas.getContext ? freqCanvas.getContext('2d') : null;
+        let freqGradient = null;
+        let hoverX = null;
+        let sampleRate = 48000;
+        let currentFftSize = 2048;
+        // Два этапа измерения: до/после
+        let measurementPhase = 'before'; // 'before' | 'after'
+        // Флаг принудительного старта с фазы "до" для следующего запуска
+        let forcePhaseBeforeOnNextStart = false;
+        // Медианное сглаживание спектра по окну из 80 кадров
+        const SMOOTH_WINDOW = 80;
+        let spectrumBuffer = [];
+        let currentSmoothed = null;
+        let beforeSmoothed = null;
+        let afterSmoothed = null;
+        let avgBeforeVal = null;
+        let avgAfterVal = null;
+        const measurementLimitSec = 10;
+        let endTimeMs = 0;
+        
+        // Генератор белого шума
+        let noiseContext = null;
+        let noiseSource = null;
+        let noiseGain = null;
+        let isNoisePlaying = false;
+
+        // Проверка поддержки getUserMedia
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            toggleBtn.disabled = true;
+        }
+        
+        // ====== ЧАСТОТНАЯ КАЛИБРОВКА ======
+        
+        // Загрузка калибровки из localStorage
+        function loadFrequencyCalibration() {
+            try {
+                const saved = localStorage.getItem('noiseMeterFreqCalibration');
+                if (saved !== null) {
+                    frequencyCalibration = JSON.parse(saved);
+                    console.log('Частотная калибровка загружена:', frequencyCalibration);
+                }
+            } catch(e) {
+                console.error('Ошибка загрузки калибровки:', e);
+                frequencyCalibration = {};
+            }
+            
+            // Загрузка базовой калибровки
+            try {
+                const savedBase = localStorage.getItem('noiseMeterBaseCalibration');
+                if (savedBase !== null) {
+                    GLOBAL_CALIBRATION_OFFSET = parseFloat(savedBase);
+                    console.log('Базовая калибровка загружена:', GLOBAL_CALIBRATION_OFFSET);
+                }
+            } catch(e) {
+                console.error('Ошибка загрузки базовой калибровки:', e);
+            }
+        }
+        
+        // Сохранение калибровки в localStorage
+        function saveFrequencyCalibration() {
+            try {
+                localStorage.setItem('noiseMeterFreqCalibration', JSON.stringify(frequencyCalibration));
+                console.log('Частотная калибровка сохранена:', frequencyCalibration);
+            } catch(e) {
+                console.error('Ошибка сохранения калибровки:', e);
+            }
+        }
+        
+        // Сохранение базовой калибровки
+        function saveBaseCalibration() {
+            try {
+                localStorage.setItem('noiseMeterBaseCalibration', GLOBAL_CALIBRATION_OFFSET.toString());
+                console.log('Базовая калибровка сохранена:', GLOBAL_CALIBRATION_OFFSET);
+            } catch(e) {
+                console.error('Ошибка сохранения базовой калибровки:', e);
+            }
+        }
+        
+        // Создание компактного UI для списка частот
+        function createFrequencyUI() {
+            calibrationFrequencyList.innerHTML = '';
+            
+            CALIBRATION_FREQUENCIES.forEach((freq, index) => {
+                const item = document.createElement('div');
+                item.className = 'frequency-item';
+                item.id = `freq-item-${freq}`;
+                
+                const calibData = frequencyCalibration[freq] || null;
+                if (calibData) {
+                    item.classList.add('completed');
+                }
+                
+                item.innerHTML = `
+                    <div class="frequency-label" onclick="switchToFrequency(${freq})" style="cursor: pointer;">${freq} Гц</div>
+                    <div class="frequency-measured" id="measured-${freq}">
+                        <small>Наш:</small>
+                        <strong id="measured-value-${freq}">--</strong>
+                    </div>
+                    <div class="frequency-reference">
+                        <small>Проф.:</small><br>
+                        <input type="number" id="reference-${freq}" 
+                               placeholder="94" 
+                               step="0.1" 
+                               min="0"
+                               max="120"
+                               value="${calibData ? calibData.reference.toFixed(1) : ''}">
+                    </div>
+                    <div>
+                        <button class="frequency-apply-btn" id="apply-btn-${freq}" onclick="applyCalibration(${freq})">Применить</button>
+                    </div>
+                    <div class="frequency-offset" id="offset-${freq}">
+                        ${calibData ? `<strong>${calibData.offset >= 0 ? '+' : ''}${calibData.offset.toFixed(1)} dB</strong>` : ''}
+                    </div>
+                `;
+                
+                calibrationFrequencyList.appendChild(item);
+            });
+            
+            // НЕ запускаем автоматически тон при открытии - пользователь сначала должен откалибровать белый шум
+        }
+        
+        // Автоматический запуск калибровки частоты
+        function startFrequencyCalibration(freq) {
+            // Останавливаем предыдущую частоту
+            if (currentToneFreq) {
+                const prevItem = document.getElementById(`freq-item-${currentToneFreq}`);
+                if (prevItem) prevItem.classList.remove('active');
+            }
+            
+            stopTone();
+            stopCalibrationMeasurement();
+            
+            // Подсвечиваем текущую частоту
+            const item = document.getElementById(`freq-item-${freq}`);
+            if (item) item.classList.add('active');
+            
+            currentToneFreq = freq;
+            
+            // Запускаем тон
+            startTone(freq);
+            
+            // Запускаем непрерывное измерение
+            startContinuousMeasurement(freq);
+        }
+        
+        // Запуск тона на заданной частоте
+        function startTone(freq) {
+            if (!noiseContext) {
+                noiseContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            
+            if (noiseContext.state === 'suspended') {
+                noiseContext.resume();
+            }
+            
+            toneOscillator = noiseContext.createOscillator();
+            toneOscillator.frequency.value = freq;
+            toneOscillator.type = 'sine';
+            
+            toneGainNode = noiseContext.createGain();
+            toneGainNode.gain.value = 0.65; // 65% громкости
+            
+            toneOscillator.connect(toneGainNode);
+            toneGainNode.connect(noiseContext.destination);
+            
+            toneOscillator.start();
+        }
+        
+        // Остановка тона
+        function stopTone() {
+            if (toneOscillator) {
+                try {
+                    toneOscillator.stop();
+                    toneOscillator.disconnect();
+                } catch(e) {}
+                toneOscillator = null;
+            }
+            if (toneGainNode) {
+                try {
+                    toneGainNode.disconnect();
+                } catch(e) {}
+                toneGainNode = null;
+            }
+        }
+        
+        // Переключение между частотами кликом на строку
+        function switchToFrequency(freq) {
+            startFrequencyCalibration(freq);
+        }
+        
+        // Непрерывное измерение текущей частоты
+        async function startContinuousMeasurement(freq) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
+                });
+                
+                calibrationAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                calibrationAnalyser = calibrationAudioContext.createAnalyser();
+                calibrationAnalyser.fftSize = 8192;
+                calibrationAnalyser.smoothingTimeConstant = 0.3;
+                calibrationAnalyser.minDecibels = -100;
+                calibrationAnalyser.maxDecibels = -20;
+                
+                calibrationMicrophone = calibrationAudioContext.createMediaStreamSource(stream);
+                calibrationMicrophone.connect(calibrationAnalyser);
+                
+                isCalibrating = true;
+                
+                // Непрерывное обновление измерений
+                let freqSumRms2 = 0;
+                let freqCountFrames = 0;
+                let lastUpdateTime = Date.now();
+                
+                const updateMeasurement = () => {
+                    if (!isCalibrating) return;
+                    
+                    const bufferLength = calibrationAnalyser.frequencyBinCount;
+                    const freqArray = new Uint8Array(bufferLength);
+                    calibrationAnalyser.getByteFrequencyData(freqArray);
+                    
+                    const sampleRate = calibrationAudioContext.sampleRate;
+                    const nyquist = sampleRate / 2;
+                    const targetFreq = freq;
+                    const bandwidth = targetFreq * 0.2;
+                    const minFreq = Math.max(targetFreq - bandwidth, 50);
+                    const maxFreq = Math.min(targetFreq + bandwidth, 10000);
+                    
+                    let sum = 0;
+                    let validSamples = 0;
+                    
+                    for (let i = 0; i < bufferLength; i++) {
+                        const f = (i / bufferLength) * nyquist;
+                        if (f >= minFreq && f <= maxFreq) {
+                            const amplitude = freqArray[i] / 255;
+                            sum += amplitude * amplitude;
+                            validSamples++;
+                        }
+                    }
+                    
+                    const rms = validSamples > 0 ? Math.sqrt(sum / validSamples) : 0;
+                    freqSumRms2 += rms * rms;
+                    freqCountFrames++;
+                    
+                    // Обновляем дисплей каждые 200 мс
+                    const now = Date.now();
+                    if (now - lastUpdateTime > 200) {
+                        const meanRms2 = freqSumRms2 / freqCountFrames;
+                        const avgDbFs = meanRms2 > 0 ? 10 * Math.log10(meanRms2) : -100;
+                        const measuredLevel = Math.min(120, Math.max(0, avgDbFs + 100));
+                        
+                        const measuredEl = document.getElementById(`measured-value-${freq}`);
+                        if (measuredEl) {
+                            measuredEl.textContent = measuredLevel.toFixed(1) + ' dB';
+                        }
+                        
+                        lastUpdateTime = now;
+                    }
+                    
+                    calibrationRafId = requestAnimationFrame(updateMeasurement);
+                };
+                
+                updateMeasurement();
+                
+            } catch(err) {
+                console.error('Ошибка измерения:', err);
+                alert('Ошибка доступа к микрофону: ' + err.message);
+            }
+        }
+        
+        // Применение калибровки после ввода эталонного значения
+        function applyCalibration(freq) {
+            const measuredEl = document.getElementById(`measured-value-${freq}`);
+            const referenceInput = document.getElementById(`reference-${freq}`);
+            const offsetEl = document.getElementById(`offset-${freq}`);
+            const applyBtn = document.getElementById(`apply-btn-${freq}`);
+            
+            const measuredText = measuredEl.textContent;
+            if (measuredText === '--' || measuredText === '') {
+                alert('Дождитесь измерения текущей частоты');
+                return;
+            }
+            
+            const measuredValue = parseFloat(measuredText);
+            const referenceValue = parseFloat(referenceInput.value);
+            
+            if (isNaN(referenceValue) || referenceValue < 0 || referenceValue > 120) {
+                alert('Введите корректное значение от 0 до 120 дБ');
+                referenceInput.focus();
+                return;
+            }
+            
+            const offset = referenceValue - measuredValue;
+            
+            // Сохраняем калибровку
+            frequencyCalibration[freq] = {
+                measured: measuredValue,
+                reference: referenceValue,
+                offset: offset
+            };
+            
+            saveFrequencyCalibration();
+            
+            // Обновляем UI
+            offsetEl.innerHTML = `<strong>${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB</strong>`;
+            applyBtn.textContent = '✓ Готово';
+            applyBtn.disabled = true;
+            
+            const item = document.getElementById(`freq-item-${freq}`);
+            item.classList.add('completed');
+            
+            // Переходим к следующей частоте
+            const currentIndex = CALIBRATION_FREQUENCIES.indexOf(freq);
+            if (currentIndex < CALIBRATION_FREQUENCIES.length - 1) {
+                setTimeout(() => {
+                    startFrequencyCalibration(CALIBRATION_FREQUENCIES[currentIndex + 1]);
+                }, 800);
+            } else {
+                // Все частоты откалиброваны - показываем сообщение
+                setTimeout(() => {
+                    alert('Калибровка завершена! Все частоты откалиброваны.\n\nМожете закрыть окно калибровки.');
+                }, 500);
+            }
+        }
+        
+        // Остановка измерения
+        function stopCalibrationMeasurement() {
+            isCalibrating = false;
+            
+            if (calibrationRafId) {
+                cancelAnimationFrame(calibrationRafId);
+                calibrationRafId = null;
+            }
+            
+            if (calibrationMicrophone) {
+                try {
+                    calibrationMicrophone.disconnect();
+                    calibrationMicrophone = null;
+                } catch(e) {}
+            }
+            
+            if (calibrationAudioContext) {
+                try {
+                    calibrationAudioContext.close();
+                    calibrationAudioContext = null;
+                } catch(e) {}
+            }
+            
+            calibrationAnalyser = null;
+        }
+        
+        
+        // ====== БАЗОВАЯ КАЛИБРОВКА - РУЧНОЙ ВВОД ======
+        
+        // Применение базовой калибровки
+        function applyBaseCalibration() {
+            const offsetValue = parseFloat(baseCalibrationInput.value);
+            
+            if (isNaN(offsetValue) || offsetValue < -50 || offsetValue > 100) {
+                alert('Введите корректное значение от -50 до 100 дБ');
+                baseCalibrationInput.focus();
+                return;
+            }
+            
+            // Применяем новое смещение
+            GLOBAL_CALIBRATION_OFFSET = offsetValue;
+            saveBaseCalibration();
+            
+            // Обновляем UI
+            baseCalibrationOffset.innerHTML = `Текущее значение: <strong style="color: var(--accent);">${offsetValue >= 0 ? '+' : ''}${offsetValue.toFixed(1)} dB</strong>`;
+            
+            alert(`Базовая калибровка применена!\nBASE_CALIBRATION_OFFSET: ${offsetValue >= 0 ? '+' : ''}${offsetValue.toFixed(1)} dB`);
+        }
+        
+        // Открытие модального окна калибровки
+        function openCalibrationModal() {
+            calibrationModal.classList.add('active');
+            
+            // Обновляем отображение текущего значения
+            baseCalibrationInput.value = GLOBAL_CALIBRATION_OFFSET.toFixed(1);
+            baseCalibrationOffset.innerHTML = `Текущее значение: <strong style="color: var(--accent);">${GLOBAL_CALIBRATION_OFFSET >= 0 ? '+' : ''}${GLOBAL_CALIBRATION_OFFSET.toFixed(1)} dB</strong>`;
+            
+            createFrequencyUI();
+
+            // Инициализация STP UI
+            stpEnableAfterEl = document.getElementById('stpEnableAfter');
+            stpStrengthEl = document.getElementById('stpStrength');
+            stpStrengthLabelEl = document.getElementById('stpStrengthLabel');
+            // Загрузка сохраненных настроек
+            loadStpSettings();
+            // Привязка обработчиков
+            if (stpEnableAfterEl) {
+                stpEnableAfterEl.checked = ENABLE_STP_WEIGHTING_AFTER;
+                stpEnableAfterEl.addEventListener('change', () => {
+                    ENABLE_STP_WEIGHTING_AFTER = !!stpEnableAfterEl.checked;
+                    saveStpSettings();
+                });
+            }
+            if (stpStrengthEl && stpStrengthLabelEl) {
+                const val = Math.round(STP_STRENGTH * 100);
+                stpStrengthEl.value = String(val);
+                stpStrengthLabelEl.textContent = `${val}%`;
+                stpStrengthEl.addEventListener('input', () => {
+                    const pct = Math.max(0, Math.min(150, Number(stpStrengthEl.value || '0')));
+                    STP_STRENGTH = pct / 100;
+                    stpStrengthLabelEl.textContent = `${pct}%`;
+                    saveStpSettings();
+                });
+            }
+        }
+        
+        // Закрытие модального окна калибровки
+        function closeCalibrationModal() {
+            calibrationModal.classList.remove('active');
+            stopCalibrationMeasurement();
+            stopTone();
+            if (currentToneFreq) {
+                const playBtn = document.getElementById(`play-${currentToneFreq}`);
+                if (playBtn) {
+                    playBtn.textContent = 'Играть тон';
+                    playBtn.classList.remove('playing');
+                }
+                currentToneFreq = null;
+            }
+        }
+
+        // ====== Сохранение/загрузка настроек STP ======
+        function saveStpSettings() {
+            try {
+                localStorage.setItem('noiseMeterStpEnableAfter', ENABLE_STP_WEIGHTING_AFTER ? '1' : '0');
+                localStorage.setItem('noiseMeterStpStrength', STP_STRENGTH.toString());
+            } catch(e) {}
+        }
+        function loadStpSettings() {
+            try {
+                const en = localStorage.getItem('noiseMeterStpEnableAfter');
+                if (en !== null) ENABLE_STP_WEIGHTING_AFTER = en === '1';
+                const st = localStorage.getItem('noiseMeterStpStrength');
+                if (st !== null && !isNaN(parseFloat(st))) STP_STRENGTH = Math.max(0, Math.min(1.5, parseFloat(st)));
+            } catch(e) {}
+        }
+        
+        // Сброс всей калибровки
+        function resetFrequencyCalibration() {
+            if (confirm('Вы уверены, что хотите сбросить ВСЮ калибровку (базовую и частотную)?')) {
+                stopTone();
+                stopCalibrationMeasurement();
+                
+                // Сброс к финальным значениям калибровки (утренние данные)
+                frequencyCalibration = {
+                    125:  { measured: 97.4, reference: 79.4, offset: -18.0 },
+                    250:  { measured: 94.7, reference: 86.0, offset: -8.7 },
+                    500:  { measured: 90.0, reference: 65.0, offset: -25.0 },
+                    1000: { measured: 88.6, reference: 81.0, offset: -7.6 },
+                    2000: { measured: 85.7, reference: 81.5, offset: -4.2 },
+                    4000: { measured: 81.4, reference: 74.0, offset: -7.4 },
+                    8000: { measured: 78.8, reference: 73.0, offset: -5.8 }
+                };
+                saveFrequencyCalibration();
+                
+                // Сброс базовой калибровки к финальному значению
+                GLOBAL_CALIBRATION_OFFSET = 39.0;
+                saveBaseCalibration();
+                
+                closeCalibrationModal();
+            }
+        }
+        
+        // Обработчики событий
+        calibrationBtn.addEventListener('click', openCalibrationModal);
+        calibrationCloseBtn.addEventListener('click', closeCalibrationModal);
+        calibrationResetBtn.addEventListener('click', resetFrequencyCalibration);
+        baseCalibrationApplyBtn.addEventListener('click', applyBaseCalibration);
+        
+        calibrationModal.addEventListener('click', (e) => {
+            if (e.target === calibrationModal) {
+                closeCalibrationModal();
+            }
+        });
+        
+        // Загрузка калибровки при старте
+        loadFrequencyCalibration();
+        
+        // ====== ПРИМЕНЕНИЕ ЧАСТОТНОЙ КОРРЕКЦИИ ======
+        
+        // Интерполяция смещения для произвольной частоты
+        function getFrequencyOffset(freq) {
+            const freqs = Object.keys(frequencyCalibration).map(Number).sort((a, b) => a - b);
+            
+            if (freqs.length === 0) {
+                return 0; // Нет калибровки
+            }
+            
+            // Если частота меньше минимальной - возвращаем смещение минимальной
+            if (freq <= freqs[0]) {
+                return frequencyCalibration[freqs[0]].offset;
+            }
+            
+            // Если частота больше максимальной - возвращаем смещение максимальной
+            if (freq >= freqs[freqs.length - 1]) {
+                return frequencyCalibration[freqs[freqs.length - 1]].offset;
+            }
+            
+            // Находим две ближайшие частоты для линейной интерполяции
+            let lowerFreq = freqs[0];
+            let upperFreq = freqs[freqs.length - 1];
+            
+            for (let i = 0; i < freqs.length - 1; i++) {
+                if (freq >= freqs[i] && freq <= freqs[i + 1]) {
+                    lowerFreq = freqs[i];
+                    upperFreq = freqs[i + 1];
+                    break;
+                }
+            }
+            
+            // Линейная интерполяция
+            const lowerOffset = frequencyCalibration[lowerFreq].offset;
+            const upperOffset = frequencyCalibration[upperFreq].offset;
+            const t = (freq - lowerFreq) / (upperFreq - lowerFreq);
+            
+            return lowerOffset + t * (upperOffset - lowerOffset);
+        }
+        
+        // A-weighting коррекция по стандарту IEC 61672-1
+        function getAWeighting(freq) {
+            if (freq <= 0) return -100;
+            
+            // Формула A-weighting
+            const f2 = freq * freq;
+            const c1 = 20.6 * 20.6;
+            const c2 = 107.7 * 107.7;
+            const c3 = 737.9 * 737.9;
+            const c4 = 12194.0 * 12194.0;
+            
+            const numerator = c4 * f2 * f2;
+            const denominator = (f2 + c1) * Math.sqrt((f2 + c2) * (f2 + c3)) * (f2 + c4);
+            
+            if (denominator === 0) return -100;
+            
+            const aWeight = 20 * Math.log10(numerator / denominator) + 2.0; // +2.0 для нормализации на 1kHz = 0 dB
+            
+            return aWeight;
+        }
+        
+        // Применение частотной коррекции к спектру (калибровка микрофона)
+        function applyFrequencyCorrection(freqArray, sampleRate) {
+            if (Object.keys(frequencyCalibration).length === 0) {
+                return freqArray; // Нет калибровки - возвращаем как есть
+            }
+            
+            const corrected = new Float32Array(freqArray.length);
+            const nyquist = sampleRate / 2;
+            
+            for (let i = 0; i < freqArray.length; i++) {
+                const freq = (i / freqArray.length) * nyquist;
+                const offset = getFrequencyOffset(freq);
+                
+                // Конвертируем: 0-255 -> dB -> применяем offset -> обратно
+                const normalized = freqArray[i] / 255;
+                if (normalized > 0) {
+                    const dB = 20 * Math.log10(normalized);
+                    const correctedDB = dB + offset;
+                    const correctedNormalized = Math.pow(10, correctedDB / 20);
+                    corrected[i] = Math.min(1, Math.max(0, correctedNormalized));
+                } else {
+                    corrected[i] = 0;
+                }
+            }
+            
+            return corrected;
+        }
+        
+        // Применение A-weighting к спектру
+        function applyAWeighting(freqArray, sampleRate) {
+            const aWeighted = new Float32Array(freqArray.length);
+            const nyquist = sampleRate / 2;
+            
+            for (let i = 0; i < freqArray.length; i++) {
+                const freq = (i / freqArray.length) * nyquist;
+                const aWeight = getAWeighting(freq);
+                
+                // Применяем A-weighting в dB
+                const normalized = freqArray[i];
+                if (normalized > 0) {
+                    const dB = 20 * Math.log10(normalized);
+                    const aWeightedDB = dB + aWeight;
+                    const aWeightedNormalized = Math.pow(10, aWeightedDB / 20);
+                    aWeighted[i] = Math.max(0, aWeightedNormalized);
+                } else {
+                    aWeighted[i] = 0;
+                }
+            }
+            
+            return aWeighted;
+        }
+
+        // ====== Дополнительное STP-взвешивание для оценки эффективности шумоизоляции ======
+        // Усиливает вклад диапазона 2–10 кГц и ослабляет вклад НЧ до 700 Гц
+        // По умолчанию применяется ТОЛЬКО к фазе "после"
+        let ENABLE_STP_WEIGHTING_AFTER = true;
+        let STP_STRENGTH = 1.0; // 0.0..1.5 (0-150%)
+
+        function getStpWeightingDb(freq) {
+            // Плавная кусочно-линейная кривая (dB), 0 дБ в средних частотах
+            // <200 Гц: -6 дБ; 200–700 Гц: от -6 до -3 дБ; 700–2000 Гц: от -3 до 0 дБ
+            // 2–10 кГц: +4 дБ (с плавным нарастанием), >10 кГц: затухание к 0 дБ
+            if (freq <= 0) return 0;
+            if (freq < 200) return -6;
+            if (freq < 700) {
+                const t = (freq - 200) / (700 - 200); // 0..1
+                return -6 + t * ( -3 - (-6) ); // -6 -> -3
+            }
+            if (freq < 2000) {
+                const t = (freq - 700) / (2000 - 700);
+                return -3 + t * (0 - (-3)); // -3 -> 0
+            }
+            if (freq <= 10000) {
+                const t = (freq - 2000) / (10000 - 2000);
+                return 0 + t * (4 - 0); // 0 -> +4 дБ
+            }
+            // Свыше 10 кГц постепенно возвращаемся к 0
+            if (freq < 16000) {
+                const t = (freq - 10000) / (16000 - 10000);
+                return 4 + t * (0 - 4); // +4 -> 0
+            }
+            return 0;
+        }
+
+        function getStpWeightingScaledDb(freq) {
+            return getStpWeightingDb(freq) * STP_STRENGTH;
+        }
+
+        // ====== 1/3-октавные полосы и правильный расчет LAeq ======
+        
+        // Глобальный калибровочный оффсет для приведения к SpectraPLUS (базовая калибровка)
+        let GLOBAL_CALIBRATION_OFFSET = 39.0;
+        
+        function getThirdOctaveCenters() {
+            // Стандартные центры 1/3 октавы в пределах 100-10000 Гц
+            return [
+                100, 125, 160, 200, 250, 315, 400, 500,
+                630, 800, 1000, 1250, 1600, 2000, 2500,
+                3150, 4000, 5000, 6300, 8000, 10000
+            ];
+        }
+
+        function getBandEdges(centers) {
+            // Границы полос: center * 2^(±1/6)
+            const factor = Math.pow(2, 1/6);
+            return centers.map(c => ({ low: c / factor, high: c * factor }));
+        }
+
+        function computeLAeqFrameFromFloatDb(floatDbArray, sampleRate) {
+            const nyquist = sampleRate / 2;
+            const bins = floatDbArray.length;
+            const centers = getThirdOctaveCenters();
+            const edges = getBandEdges(centers);
+
+            // Энергия по полосам (в линейной шкале мощности)
+            const bandPowers = new Array(centers.length).fill(0);
+            let totalValidBins = 0;
+
+            for (let i = 0; i < bins; i++) {
+                const freq = (i / bins) * nyquist;
+                if (freq < 100 || freq > 10000) continue;
+
+                // dB из AnalyserNode (dBFS)
+                let dB = floatDbArray[i];
+                if (!isFinite(dB) || dB < -100) continue;
+
+                // Частотная калибровка микрофона
+                const micOffset = getFrequencyOffset(freq) || 0;
+                dB += micOffset;
+
+                // A-взвешивание
+                dB += getAWeighting(freq);
+
+                // Дополнительное STP-взвешивание применяем только для фазы "после"
+                if (ENABLE_STP_WEIGHTING_AFTER && measurementPhase === 'after') {
+                    dB += getStpWeightingScaledDb(freq);
+                }
+
+                // Перевод в линейную мощность с глобальной калибровкой
+                const power = Math.pow(10, (dB + GLOBAL_CALIBRATION_OFFSET) / 10);
+
+                // Находим полосу
+                for (let b = 0; b < centers.length; b++) {
+                    const e = edges[b];
+                    if (freq >= e.low && freq < e.high) {
+                        bandPowers[b] += power;
+                        totalValidBins++;
+                        break;
+                    }
+                }
+            }
+
+            // Если нет валидных бинов - возвращаем минимальное значение
+            if (totalValidBins === 0) return 0.0000001; // -100 dB
+
+            // Суммируем энергию по всем полосам
+            let totalPower = 0;
+            for (let b = 0; b < bandPowers.length; b++) {
+                totalPower += bandPowers[b];
+            }
+
+            // Нормализуем на количество бинов в полосах
+            const avgPower = totalPower / totalValidBins;
+
+            return avgPower;
+        }
+
+        // Функции для работы с чистым белым шумом
+        function createWhiteNoise() {
+            // Создаем AudioContext только один раз
+            if (!noiseContext) {
+                noiseContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            
+            // Создаем источник белого шума
+            const bufferSize = 2 * noiseContext.sampleRate; // 2 секунды буфера
+            const noiseBuffer = noiseContext.createBuffer(1, bufferSize, noiseContext.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            
+            // Создаем ЧИСТЫЙ белый шум без примесей
+            for (let i = 0; i < bufferSize; i++) {
+                // Чистый белый шум - равномерное распределение по всем частотам
+                output[i] = Math.random() * 2 - 1;
+            }
+            
+            // Создаем источник и gain node КАЖДЫЙ РАЗ
+            noiseSource = noiseContext.createBufferSource();
+            noiseSource.buffer = noiseBuffer;
+            noiseSource.loop = true; // зацикливаем шум
+            
+            noiseGain = noiseContext.createGain();
+            noiseGain.gain.value = 0; // начинаем с нулевой громкости
+            
+            // Подключаем напрямую: источник -> gain -> выход
+            // Без фильтров - чистый белый шум
+            noiseSource.connect(noiseGain);
+            noiseGain.connect(noiseContext.destination);
+        }
+
+        function startWhiteNoise() {
+            console.log('startWhiteNoise вызван, isNoisePlaying:', isNoisePlaying);
+            
+            if (isNoisePlaying) {
+                console.log('Шум уже играет, выход');
+                return;
+            }
+            
+            // Всегда создаем новый источник
+            createWhiteNoise();
+            
+            if (noiseContext.state === 'suspended') {
+                noiseContext.resume();
+            }
+            
+            if (noiseSource && noiseGain) {
+                try {
+                    // Запускаем источник
+                    noiseSource.start();
+                    isNoisePlaying = true;
+                    console.log('Белый шум ЗАПУЩЕН');
+                    
+                    // Плавное зажигание за 2 секунды
+                    const currentTime = noiseContext.currentTime;
+                    noiseGain.gain.setValueAtTime(0, currentTime); // начинаем с 0
+                    noiseGain.gain.linearRampToValueAtTime(0.65, currentTime + 2.0); // доходим до 65% за 2 сек
+                } catch(e) {
+                    console.error('Ошибка запуска белого шума:', e);
+                    isNoisePlaying = false;
+                }
+            } else {
+                console.error('noiseSource или noiseGain не создан!');
+            }
+        }
+
+        function stopWhiteNoise() {
+            console.log('stopWhiteNoise вызван, isNoisePlaying:', isNoisePlaying);
+            
+            if (!isNoisePlaying) {
+                console.log('Шум не играет, выход');
+                return;
+            }
+            
+            if (noiseSource) {
+                try {
+                    noiseSource.stop();
+                    noiseSource.disconnect(); // Отключаем старый источник
+                    isNoisePlaying = false;
+                    console.log('Белый шум ОСТАНОВЛЕН');
+                } catch(e) {
+                    console.error('Ошибка остановки белого шума:', e);
+                    isNoisePlaying = false;
+                }
+            }
+            
+            // Отключаем gain для гарантии
+            if (noiseGain) {
+                try {
+                    noiseGain.disconnect();
+                } catch(e) {}
+            }
+            
+            // НЕ создаем новый источник здесь - создадим при запуске
+            noiseSource = null;
+            noiseGain = null;
+        }
+
+        // Экран запуска
+        launchBtn.addEventListener('click', async () => {
+            try {
+                if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+                    await document.documentElement.requestFullscreen();
+                    document.documentElement.classList.add('fs');
+                }
+            } catch(e) {}
+        });
+
+        toggleBtn.addEventListener('click', async () => {
+            try {
+                if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+                    await document.documentElement.requestFullscreen();
+                    document.documentElement.classList.add('fs');
+                }
+            } catch(e) {}
+            if (!isMeasuring) {
+                startMeter();
+                toggleBtn.disabled = true; // сразу блокируем до окончания измерения
+            }
+        });
+
+        document.addEventListener('fullscreenchange', () => {
+            const isFs = !!document.fullscreenElement;
+            document.documentElement.classList.toggle('fs', isFs);
+            setTimeout(initFreqCanvas, 100);
+            setTimeout(initFreqCanvas, 300);
+            setTimeout(initFreqCanvas, 500);
+        });
+        resetBtn.addEventListener('click', () => {
+            const label = resetBtn.textContent.trim();
+            if (label === 'Стоп') {
+                // Остановить текущее измерение
+                stopMeter();
+                return;
+            }
+            // «Сброс»: полностью очищает измерения и графики, но ничего не запускает
+            // Полный сброс обоих измерений и графиков
+            foreverBeforeSumRms2 = 0;
+            foreverBeforeCountFrames = 0;
+            foreverAfterSumRms2 = 0;
+            foreverAfterCountFrames = 0;
+            foreverBeforeSpecSum = null;
+            foreverAfterSpecSum = null;
+            beforeSmoothed = null;
+            afterSmoothed = null;
+            avgBeforeVal = null;
+            avgAfterVal = null;
+            measurementPhase = 'before';
+            forcePhaseBeforeOnNextStart = true;
+            avgBeforeEl.textContent = 'До: -- dB';
+            avgAfterEl.textContent = 'После: -- dB';
+            diffElement.textContent = 'Разница: -- dB';
+            toggleBtn.textContent = 'Старт';
+            toggleBtn.style.display = 'inline-block';
+            resetBtn.textContent = 'Стоп';
+            // Очистка полотна
+            try {
+                const rect = freqCanvas.getBoundingClientRect();
+                freqCtx.fillStyle = '#ffffff';
+                freqCtx.fillRect(0, 0, rect.width, rect.height);
+            } catch(e) {}
+        });
+        // Кнопка сброса Forever удалена по требованию
+        
+        async function startMeter() {
+            try {
+                // Убираем анимацию пульсации при нажатии Старт
+                toggleBtn.classList.remove('pulse-attention');
+                // Если был явный «Завершить», принудительно начинаем новый цикл с фазы ДО
+                if (forcePhaseBeforeOnNextStart) {
+                    measurementPhase = 'before';
+                    forcePhaseBeforeOnNextStart = false;
+                }
+                
+                // Новый цикл начинается, когда фаза ДО и нажали старт заново — очищаем старые графики/значения
+                if (measurementPhase === 'before') {
+                    // Сбрасываем ВСЕ накопители для нового цикла
+                    foreverBeforeSumRms2 = 0;
+                    foreverBeforeCountFrames = 0;
+                    foreverAfterSumRms2 = 0;
+                    foreverAfterCountFrames = 0;
+                    foreverBeforeSpecSum = null;
+                    foreverBeforeSpecCount = null;
+                    foreverAfterSpecSum = null;
+                    foreverAfterSpecCount = null;
+                    beforeSmoothed = null;
+                    afterSmoothed = null;
+                    avgBeforeVal = null;
+                    avgAfterVal = null;
+                    avgBeforeEl.textContent = 'До: -- dB';
+                    avgAfterEl.textContent = 'После: -- dB';
+                    diffElement.textContent = 'Разница: -- dB';
+                    try {
+                        const rect = freqCanvas.getBoundingClientRect();
+                        freqCtx.fillStyle = '#ffffff';
+                        freqCtx.fillRect(0, 0, rect.width, rect.height);
+                    } catch(e) {}
+                } else {
+                    // Если начинаем фазу ПОСЛЕ, сбрасываем только накопители ПОСЛЕ
+                    foreverAfterSumRms2 = 0;
+                    foreverAfterCountFrames = 0;
+                    foreverAfterSpecSum = null;
+                    foreverAfterSpecCount = null;
+                }
+
+                // Используем микрофон по умолчанию — без выбора устройства
+                deviceList.style.display = 'none';
+                const selectedDeviceId = undefined;
+                deviceLabel = '';
+
+                // Запрашиваем доступ к микрофону
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        // deviceId не указываем, чтобы взять устройство по умолчанию
+                        deviceId: undefined,
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
+                });
+
+                // Создаем AudioContext
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 4096;
+                analyser.smoothingTimeConstant = 0.5;
+                analyser.minDecibels = -100;
+                analyser.maxDecibels = -20;
+                sampleRate = audioContext.sampleRate || sampleRate;
+                currentFftSize = analyser.fftSize;
+
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+
+                // Используем AnalyserNode для получения данных
+                processAudio();
+
+                toggleBtn.disabled = true;
+                
+                // Запускаем белый шум на время измерения
+                startWhiteNoise();
+                
+
+                // Сброс накопителей для нового замера
+                sumRms2 = 0;
+                countFrames = 0;
+                avgElement.textContent = 'Среднее: -- dB';
+                durationElement.textContent = `${measurementLimitSec}`;
+                durationElement.setAttribute('data-prev', measurementLimitSec);
+                diffElement.textContent = 'Разница: -- dB';
+                startTimeMs = Date.now();
+                endTimeMs = startTimeMs + measurementLimitSec * 1000;
+                isMeasuring = true;
+                // Убираем выделение среднего при новом замере
+                avgElement.classList.remove('highlight');
+                // Инициализируем целевую строку средней в зависимости от фазы
+                if (measurementPhase === 'before') {
+                    avgBeforeEl.textContent = 'До: -- dB';
+                } else {
+                    avgAfterEl.textContent = 'После: -- dB';
+                }
+                // Инициализируем канвас спектра под экран
+                initFreqCanvas();
+                // Сброс буфера спектров
+                spectrumBuffer = [];
+                currentSmoothed = null;
+                // Если начинаем ПОСЛЕ, не трогаем avgBefore и beforePeaks
+
+                // Обновляем список устройств при изменении
+                // Больше не обновляем список устройств — фиксируемся на устройстве по умолчанию
+            } catch (err) {
+                console.error('Ошибка:', err);
+            }
+        }
+
+        function processAudio() {
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            const freqArray = new Uint8Array(bufferLength);
+
+            const updateLevel = () => {
+                analyser.getByteTimeDomainData(dataArray);
+                analyser.getByteFrequencyData(freqArray); // Для визуализации
+                
+                // Берем плавающий спектр в дБ из AnalyserNode для расчетов
+                const floatDbArray = new Float32Array(bufferLength);
+                analyser.getFloatFrequencyData(floatDbArray);
+
+                // Интеграция по 1/3-октавам с A-взвешиванием и накопление для LAeq
+                const framePower = computeLAeqFrameFromFloatDb(floatDbArray, sampleRate);
+
+                // Накопление мощности для LAeq (энергетическое усреднение)
+                sumRms2 += framePower;
+                countFrames += 1;
+                // FOREVER-накопление по фазе
+                if (measurementPhase === 'before') {
+                    foreverBeforeSumRms2 += framePower;
+                    foreverBeforeCountFrames += 1;
+                } else {
+                    foreverAfterSumRms2 += framePower;
+                    foreverAfterCountFrames += 1;
+                }
+                const meanPower = sumRms2 / Math.max(1, countFrames);
+
+                // Перевод в дБ (калибровка уже применена к мощности)
+                // Отображаем режим Forever по текущей фазе
+                const foreverMeanPowerPhase = (measurementPhase === 'before')
+                    ? (foreverBeforeSumRms2 / Math.max(1, foreverBeforeCountFrames))
+                    : (foreverAfterSumRms2 / Math.max(1, foreverAfterCountFrames));
+                const avgDisplayed = foreverMeanPowerPhase > 0 ? 10 * Math.log10(foreverMeanPowerPhase) + 100 : 0;
+
+                // Энергетическое усреднение и вывод в соответствующую строку (ДО/ПОСЛЕ)
+                if (isMeasuring) {
+                    // avgDisplayed уже вычислен как LAeq по 1/3-октавам
+                    if (measurementPhase === 'before') avgBeforeEl.textContent = `До: ${avgDisplayed.toFixed(1)} dB`;
+                    else avgAfterEl.textContent = `После: ${avgDisplayed.toFixed(1)} dB`;
+                    const elapsed = Math.floor((Date.now() - startTimeMs) / 1000);
+                    const remaining = Math.max(0, measurementLimitSec - elapsed);
+                    const prevRemaining = durationElement.getAttribute('data-prev');
+                    if (prevRemaining !== String(remaining)) {
+                        durationElement.textContent = `${remaining}`;
+                        durationElement.setAttribute('data-prev', remaining);
+                        // Анимация пульсации
+                        durationElement.classList.remove('pulse');
+                        void durationElement.offsetWidth; // trigger reflow
+                        durationElement.classList.add('pulse');
+                        setTimeout(() => {
+                            durationElement.classList.remove('pulse');
+                        }, 300);
+                    }
+                    if (Date.now() >= endTimeMs) {
+                        stopMeter();
+                        return;
+                    }
+                }
+
+                // Обновляем разницу (ПОСЛЕ - ДО) при второй фазе
+                if (measurementPhase === 'after') {
+                    const beforeVal = (avgBeforeVal !== null && !isNaN(avgBeforeVal)) ? avgBeforeVal : null;
+                    const currentMeanPower = sumRms2 / Math.max(1, countFrames);
+                    const currentAvgDisplay = currentMeanPower > 0 ? 10 * Math.log10(currentMeanPower) + 100 : 0;
+                    if (beforeVal !== null) {
+                        const diffDb = currentAvgDisplay - beforeVal;
+                        // Конверсия дБ в мощностное отношение: P2/P1 = 10^(ΔdB/10)
+                        const powerRatio = Math.pow(10, diffDb / 10);
+                        const percent = (powerRatio - 1) * 100;
+                        const sign = percent >= 0 ? '+' : '';
+                        diffElement.textContent = `Разница: ${diffDb.toFixed(1)} dB (${sign}${percent.toFixed(0)}%)`;
+                    }
+                }
+
+                // FOREVER-спектры по фазам (накапливаем линейную мощность по бинам)
+                if (isMeasuring) {
+                    const bufferLength = freqArray.length;
+                    const nyquistLocal = sampleRate / 2;
+                    // подготовим сумматоры
+                    if (measurementPhase === 'before') {
+                        if (!foreverBeforeSpecSum || foreverBeforeSpecSum.length !== bufferLength) {
+                            foreverBeforeSpecSum = new Float64Array(bufferLength);
+                        }
+                        for (let i = 0; i < bufferLength; i++) {
+                            // 0..1 амплитуда
+                            const n = (freqArray[i] / 255);
+                            if (n <= 0) continue;
+                            // dB мгновенные по амплитуде
+                            let dB = 20 * Math.log10(n);
+                            const freq = (i / bufferLength) * nyquistLocal;
+                            // A-взвешивание
+                            dB += getAWeighting(freq);
+                            // обратно в нормализованную амплитуду
+                            const nCorr = Math.pow(10, dB / 20);
+                            const pCorr = nCorr * nCorr; // линейная мощность
+                            foreverBeforeSpecSum[i] += pCorr;
+                        }
+                    } else {
+                        if (!foreverAfterSpecSum || foreverAfterSpecSum.length !== bufferLength) {
+                            foreverAfterSpecSum = new Float64Array(bufferLength);
+                        }
+                        for (let i = 0; i < bufferLength; i++) {
+                            const n = (freqArray[i] / 255);
+                            if (n <= 0) continue;
+                            let dB = 20 * Math.log10(n);
+                            const freq = (i / bufferLength) * nyquistLocal;
+                            dB += getAWeighting(freq);
+                            const nCorr = Math.pow(10, dB / 20);
+                            const pCorr = nCorr * nCorr;
+                            foreverAfterSpecSum[i] += pCorr;
+                        }
+                    }
+                }
+                
+                // Применяем визуальный фильтр высоких частот перед отрисовкой
+                const visualData = applyVisualHighPassFilter(currentSmoothed || freqArray);
+                
+                // Рисуем спектр (сглаженный и отфильтрованный)
+                drawFrequencyResponse(visualData);
+
+                rafId = requestAnimationFrame(updateLevel);
+            };
+
+            updateLevel();
+        }
+
+        function stopMeter() {
+            if (rafId) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+            if (microphone) {
+                microphone.disconnect();
+            }
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            if (navigator.mediaDevices) {
+                navigator.mediaDevices.removeEventListener('devicechange', updateDeviceList);
+            }
+            
+            // Останавливаем белый шум
+            stopWhiteNoise();
+            
+            // Определяем следующий шаг для кнопки
+            if (measurementPhase === 'before') {
+                toggleBtn.textContent = 'Старт';
+            } else {
+                toggleBtn.textContent = 'Старт';
+            }
+            toggleBtn.disabled = false;
+            toggleBtn.classList.remove('stop');
+            deviceList.style.display = 'none';
+
+            // Сбрасываем флаг измерения ДО обработки итогов, чтобы живая линия не рисовалась
+            const wasMeasuring = isMeasuring;
+            isMeasuring = false;
+
+            // Итог среднего (LAeq по 1/3-октавам) - берём Forever по текущей фазе
+            if (wasMeasuring) {
+                let meanPower, avg;
+                if (measurementPhase === 'before') {
+                    meanPower = foreverBeforeCountFrames > 0 ? (foreverBeforeSumRms2 / foreverBeforeCountFrames) : 0;
+                    avg = meanPower > 0 ? 10 * Math.log10(meanPower) + 100 : 0;
+                    avgBeforeVal = Number(avg.toFixed(1));
+                    avgBeforeEl.textContent = `До: ${avgBeforeVal.toFixed(1)} dB`;
+                } else {
+                    meanPower = foreverAfterCountFrames > 0 ? (foreverAfterSumRms2 / foreverAfterCountFrames) : 0;
+                    avg = meanPower > 0 ? 10 * Math.log10(meanPower) + 100 : 0;
+                    avgAfterVal = Number(avg.toFixed(1));
+                    avgAfterEl.textContent = `После: ${avgAfterVal.toFixed(1)} dB`;
+                    if (avgBeforeVal !== null) {
+                        const diffDb = avgAfterVal - avgBeforeVal;
+                        const powerRatio = Math.pow(10, diffDb / 10);
+                        const percent = (powerRatio - 1) * 100;
+                        const sign = percent >= 0 ? '+' : '';
+                        diffElement.textContent = `Разница: ${diffDb.toFixed(1)} dB (${sign}${percent.toFixed(0)}%)`;
+                    }
+                }
+                
+                // Сохраняем Forever-спектр по фазам в Uint8Array для отрисовки
+                if (measurementPhase === 'before' && foreverBeforeSpecSum && foreverBeforeCountFrames > 0) {
+                    const bins = foreverBeforeSpecSum.length;
+                    beforeSmoothed = new Uint8Array(bins);
+                    for (let i = 0; i < bins; i++) {
+                        const avgPower = foreverBeforeSpecSum[i] / foreverBeforeCountFrames;
+                        const n = Math.sqrt(Math.max(0, avgPower));
+                        beforeSmoothed[i] = Math.max(0, Math.min(255, Math.round(n * 255)));
+                    }
+                } else if (measurementPhase === 'after' && foreverAfterSpecSum && foreverAfterCountFrames > 0) {
+                    const bins = foreverAfterSpecSum.length;
+                    afterSmoothed = new Uint8Array(bins);
+                    for (let i = 0; i < bins; i++) {
+                        const avgPower = foreverAfterSpecSum[i] / foreverAfterCountFrames;
+                        const n = Math.sqrt(Math.max(0, avgPower));
+                        afterSmoothed[i] = Math.max(0, Math.min(255, Math.round(n * 255)));
+                    }
+                }
+                
+                // Финальная отрисовка с правильным размером bins
+                try {
+                    const bins = analyser ? analyser.frequencyBinCount : 2048;
+                    drawFrequencyResponse(new Uint8Array(bins));
+                } catch(e) { console.warn('Не удалось отрисовать финальную АЧХ', e); }
+            }
+
+            isMeasuring = false;
+            
+            // Сразу после установки isMeasuring = false перерисовываем график, чтобы застыли линии
+            // Используем небольшую задержку, чтобы canvas успел получить размер после выхода из fullscreen
+            setTimeout(() => {
+                try {
+                    const bins = analyser ? analyser.frequencyBinCount : 2048;
+                    drawFrequencyResponse(new Uint8Array(bins));
+                    console.log('График перерисован после stopMeter, beforeSmoothed:', beforeSmoothed ? beforeSmoothed.length : 'null', 'afterSmoothed:', afterSmoothed ? afterSmoothed.length : 'null');
+                } catch(e) {
+                    console.error('Ошибка перерисовки графика:', e);
+                }
+            }, 150);
+            
+            // Переключаем фазу и управляем подписями кнопок
+            if (measurementPhase === 'before') {
+                measurementPhase = 'after';
+                toggleBtn.textContent = 'Старт';
+                resetBtn.textContent = 'Стоп';
+                toggleBtn.style.display = 'inline-block';
+            } else {
+                // Завершили фазу «после» — предлагаем "Завершить" и подготовим новый цикл
+                measurementPhase = 'before';
+                toggleBtn.style.display = 'none';
+                resetBtn.textContent = 'Завершить';
+                // Установим флаг, чтобы следующий "Старт" всегда начинал с ДО
+                forcePhaseBeforeOnNextStart = true;
+            }
+        }
+
+        function hardReset() {
+            // Остановить активные процессы
+            if (isMeasuring) {
+                if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+                try { if (microphone) microphone.disconnect(); } catch(e) {}
+                try { if (audioContext) { audioContext.close(); audioContext = null; } } catch(e) {}
+                try { navigator.mediaDevices.removeEventListener('devicechange', updateDeviceList); } catch(e) {}
+                isMeasuring = false;
+            }
+            
+            // Останавливаем белый шум
+            stopWhiteNoise();
+            
+            // Сброс всех данных
+            beforeSmoothed = null;
+            afterSmoothed = null;
+            spectrumBuffer = [];
+            currentSmoothed = null;
+            avgBeforeVal = null;
+            avgAfterVal = null;
+            sumRms2 = 0;
+            countFrames = 0;
+            startTimeMs = 0;
+            endTimeMs = 0;
+            measurementPhase = 'before';
+            forcePhaseBeforeOnNextStart = true;
+            // Сброс UI
+            avgBeforeEl.textContent = 'До: -- dB';
+            avgAfterEl.textContent = 'После: -- dB';
+            diffElement.textContent = 'Разница: -- dB';
+            durationElement.textContent = `${measurementLimitSec} секунд`;
+            toggleBtn.textContent = 'Старт';
+            toggleBtn.classList.remove('stop');
+            toggleBtn.disabled = false; // гарантируем, что старт снова активен
+            toggleBtn.style.display = 'inline-block'; // показываем кнопку снова
+            resetBtn.textContent = 'Стоп';
+            // Включаем анимацию пульсации для привлечения внимания
+            toggleBtn.classList.add('pulse-attention');
+            // Очистка графика
+            try {
+                const rect = freqCanvas.getBoundingClientRect();
+                freqCtx.fillStyle = '#ffffff';
+                freqCtx.fillRect(0, 0, rect.width, rect.height);
+                drawFrequencyResponse(new Uint8Array(currentFftSize / 2));
+            } catch(e) {}
+        }
+
+        async function updateDeviceList() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
+
+                deviceList.innerHTML = '';
+                audioInputDevices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.textContent = device.label || `Микрофон ${device.deviceId.substring(0, 5)}`;
+                    deviceList.appendChild(option);
+                });
+            } catch (err) {
+                console.error('Ошибка обновления списка устройств:', err);
+            }
+        }
+
+        // Обработка выбора устройства
+        deviceList.addEventListener('change', async () => {
+            // Перезапускаем с выбранным устройством
+            stopMeter();
+            setTimeout(startMeter, 100);
+        });
+
+        function renderHistory() {
+            historyListEl.innerHTML = '';
+            if (!history.length) return;
+            history.forEach(item => {
+                const li = document.createElement('li');
+                const left = document.createElement('span');
+                const right = document.createElement('span');
+                const dt = new Date(item.ts);
+                const mm = String(Math.floor(item.duration / 60)).padStart(2, '0');
+                const ss = String(item.duration % 60).padStart(2, '0');
+                left.textContent = `${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}${item.device ? ' · ' + item.device : ''}`;
+                right.textContent = `${item.avg !== null ? item.avg.toFixed(1) + ' dB' : '-- dB'} · ${mm}:${ss}`;
+                li.appendChild(left);
+                li.appendChild(right);
+                historyListEl.appendChild(li);
+            });
+        }
+
+        function saveHistory() {
+            try { localStorage.setItem('noiseMeterHistory', JSON.stringify(history.slice(0, 100))); } catch(e) {}
+        }
+
+        function clearHistory() {
+            history = [];
+            saveHistory();
+            renderHistory();
+            clearHistoryBtn.disabled = true;
+        }
+
+        // ====== Спектр (АЧХ) ======
+        function initFreqCanvas() {
+            if (!freqCtx) return;
+            const dpr = window.devicePixelRatio || 1;
+            const rect = freqCanvas.getBoundingClientRect();
+            console.log('Canvas rect:', rect.width, 'x', rect.height);
+            console.log('Window size:', window.innerWidth, 'x', window.innerHeight);
+            console.log('Fullscreen:', !!document.fullscreenElement);
+            freqCanvas.width = Math.floor(rect.width * dpr);
+            freqCanvas.height = Math.floor(rect.height * dpr);
+            freqCtx.setTransform(1, 0, 0, 1, 0, 0);
+            freqCtx.scale(dpr, dpr);
+            // Градиент заливки столбцов
+            freqGradient = freqCtx.createLinearGradient(0, 0, 0, rect.height);
+            freqGradient.addColorStop(0, 'rgba(1,100,79,0.9)');
+            freqGradient.addColorStop(1, 'rgba(1,100,79,0.2)');
+        }
+
+        // Подсобные: медиана спектров (используется в процессе измерения)
+        function medianSpectrum(buffer) {
+            if (!buffer.length) return null;
+            const len = buffer[0].length;
+            const out = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                const arr = new Array(buffer.length);
+                for (let k = 0; k < buffer.length; k++) arr[k] = buffer[k][i];
+                arr.sort((a,b) => a-b);
+                const mid = Math.floor(arr.length / 2);
+                out[i] = arr.length % 2 ? arr[mid] : Math.round((arr[mid-1] + arr[mid]) / 2);
+            }
+            return out;
+        }
+        
+        // Визуальный фильтр высоких частот для подавления низкочастотного шума на графике
+        function applyVisualHighPassFilter(spectrum) {
+            if (!spectrum || spectrum.length === 0) return spectrum;
+            
+            const filtered = new Uint8Array(spectrum.length);
+            const nyquist = sampleRate / 2;
+            const bins = spectrum.length;
+            
+            // Параметры плавного фильтра
+            const cutoffFreq = 300;      // начало подавления
+            const transitionWidth = 200; // плавность перехода (200 Гц)
+            
+            for (let i = 0; i < bins; i++) {
+                const freq = (i / bins) * nyquist;
+                
+                // Вычисляем коэффициент ослабления (0 = полное подавление, 1 = без изменений)
+                let attenuation = 1.0;
+                
+                if (freq < cutoffFreq) {
+                    // Ниже 300 Гц - сильное подавление
+                    // Используем косинусную функцию для плавного перехода
+                    const ratio = freq / cutoffFreq;
+                    attenuation = ratio * ratio; // квадратичное ослабление для более агрессивного подавления низов
+                } else if (freq < cutoffFreq + transitionWidth) {
+                    // Переходная зона 300-500 Гц - плавное восстановление
+                    const ratio = (freq - cutoffFreq) / transitionWidth;
+                    attenuation = 0.5 * (1 - Math.cos(Math.PI * ratio)); // косинусная интерполяция
+                }
+                // Выше 500 Гц - без изменений (attenuation = 1.0)
+                
+                // Применяем ослабление
+                filtered[i] = Math.round(spectrum[i] * attenuation);
+            }
+            
+            return filtered;
+        }
+
+        // Дополнительное сглаживание для плавных линий (адаптивное окно + двойной проход)
+        function smoothSpectrum(spectrum, baseWindowSize = 12) {
+            if (!spectrum || spectrum.length === 0) return spectrum;
+            let out = new Uint8Array(spectrum.length);
+            
+            // Первый проход: адаптивное окно
+            for (let i = 0; i < spectrum.length; i++) {
+                const t = i / spectrum.length;
+                const adaptiveWindow = Math.round(baseWindowSize * (1 + t * 3)); // от 12 до 48
+                const half = Math.floor(adaptiveWindow / 2);
+                let sum = 0;
+                let count = 0;
+                for (let j = Math.max(0, i - half); j <= Math.min(spectrum.length - 1, i + half); j++) {
+                    sum += spectrum[j];
+                    count++;
+                }
+                out[i] = Math.round(sum / count);
+            }
+            
+            // Второй проход: дополнительное сглаживание для ультра-плавности
+            const out2 = new Uint8Array(spectrum.length);
+            for (let i = 0; i < spectrum.length; i++) {
+                const window = 6;
+                const half = Math.floor(window / 2);
+                let sum = 0;
+                let count = 0;
+                for (let j = Math.max(0, i - half); j <= Math.min(spectrum.length - 1, i + half); j++) {
+                    sum += out[j];
+                    count++;
+                }
+                out2[i] = Math.round(sum / count);
+            }
+            
+            return out2;
+        }
+
+        // Вспомогательная: построить усреднённый по Forever спектр (0..255) из сумм мощностей
+        function buildAveragedSpec(sumArr, frames, bins) {
+            const out = new Uint8Array(bins || (sumArr ? sumArr.length : 0));
+            if (!sumArr || !sumArr.length || !frames) return out;
+            for (let i = 0; i < sumArr.length; i++) {
+                const p = sumArr[i] / frames; // средняя мощность
+                const n = Math.sqrt(Math.max(0, p)); // RMS
+                out[i] = Math.max(0, Math.min(255, Math.round(n * 255)));
+            }
+            return out;
+        }
+
+        function drawFrequencyResponse(freqArray) {
+            if (!freqCtx) return;
+            const rect = freqCanvas.getBoundingClientRect();
+            const width = rect.width;
+            const height = rect.height;
+
+            // Очистка фона
+            freqCtx.fillStyle = '#ffffff';
+            freqCtx.fillRect(0, 0, width, height);
+
+            // Логарифмическая шкала частоты (100-10000 Гц)
+            const bins = freqArray.length;
+            const minF = 100;
+            const maxF = 10000;
+            const logMin = Math.log10(minF);
+            const logMax = Math.log10(maxF);
+
+            // Позиционируем статус посередине между 500 Гц и 1 кГц
+            try {
+                const fA = 500;
+                const fB = 1000;
+                const xA = ((Math.log10(fA) - logMin) / (logMax - logMin)) * width;
+                const xB = ((Math.log10(fB) - logMin) / (logMax - logMin)) * width;
+                const midX = (xA + xB) / 2;
+                statusElement.style.left = `${midX}px`;
+                statusElement.style.transform = 'translateX(-50%)';
+                statusElement.style.top = '8px';
+            } catch(e) {}
+
+            // Сначала рисуем горизонтальные линии уровня для плавности восприятия
+            freqCtx.strokeStyle = 'rgba(1,100,79,0.06)';
+            freqCtx.lineWidth = 1;
+            for (let i = 1; i <= 4; i++) {
+                const y = (height / 5) * i;
+                freqCtx.beginPath();
+                freqCtx.moveTo(0, y);
+                freqCtx.lineTo(width, y);
+                freqCtx.stroke();
+            }
+
+            // Рисуем вертикальную сетку (более тонко и нежно)
+            const ticks = [100, 200, 500, 1000, 2000, 5000, 10000];
+            const tickPositions = [];
+            freqCtx.strokeStyle = 'rgba(1,100,79,0.10)';
+            freqCtx.lineWidth = 0.8;
+            ticks.forEach(f => {
+                if (f < minF || f > maxF) return;
+                const x = ((Math.log10(f) - logMin) / (logMax - logMin)) * width;
+                tickPositions.push({ x, f });
+                // вертикальная линия сетки
+                freqCtx.beginPath();
+                freqCtx.moveTo(x, 0);
+                freqCtx.lineTo(x, height);
+                freqCtx.stroke();
+            });
+
+            // Вспомогательная функция: перевод логарифмической частоты в X
+            function freqToX(f) {
+                const logF = Math.log10(Math.max(minF, Math.min(maxF, f)));
+                return ((logF - logMin) / (logMax - logMin)) * width;
+            }
+
+            // Вспомогательная функция: выборка и нормализация величины по частоте
+            function getNormAtFreq(data, f) {
+                const bin = Math.min(bins - 1, Math.max(0, Math.round((f / (sampleRate / 2)) * (bins - 1))));
+                let v = data[bin] / 255;
+                v = Math.pow(v, 0.85);
+                const t = (Math.log10(f) - logMin) / (logMax - logMin);
+                const hfGain = 0.85 + 0.3 * t;
+                let vDraw = Math.min(1, v * hfGain);
+                return Math.min(0.9, vDraw);
+            }
+
+            // Рисование плавной линии по лог-шкале частоты
+            function drawSmoothLine(color, data) {
+                const numPts = 160; // больше точек для плавности
+                const topPad = 20;
+                const usableH = height - 30;
+                const tension = 0.3; // кривизна
+
+                // Сбор опорных точек
+                const pts = [];
+                for (let i = 0; i < numPts; i++) {
+                    const t = i / (numPts - 1);
+                    const f = Math.pow(10, logMin + t * (logMax - logMin));
+                    const x = freqToX(f);
+                    const n = getNormAtFreq(data, f);
+                    const y = height - (n * usableH) - topPad;
+                    pts.push({ x, y });
+                }
+
+                // Сглаживание: скользящее среднее
+                const win = 5;
+                const smooth = pts.map((p, i) => {
+                    let sx = 0, sy = 0, c = 0;
+                    for (let k = -win; k <= win; k++) {
+                        const j = Math.min(numPts - 1, Math.max(0, i + k));
+                        sx += pts[j].x; sy += pts[j].y; c++;
+                    }
+                    return { x: sx / c, y: sy / c };
+                });
+
+                // Рисуем сглаженную линию (кубические кривые через промежуточные контрольные точки)
+                freqCtx.strokeStyle = color;
+                freqCtx.lineWidth = 3;
+                freqCtx.lineJoin = 'round';
+                freqCtx.lineCap = 'round';
+                freqCtx.beginPath();
+                freqCtx.moveTo(smooth[0].x, smooth[0].y);
+                for (let i = 1; i < smooth.length; i++) {
+                    const p0 = smooth[i - 1];
+                    const p1 = smooth[i];
+                    const cx = p0.x + (p1.x - p0.x) * tension;
+                    const cy = p0.y + (p1.y - p0.y) * tension;
+                    freqCtx.quadraticCurveTo(cx, cy, p1.x, p1.y);
+                }
+                freqCtx.stroke();
+            }
+
+            // Построение усреднённого по режиму Forever спектра текущей фазы во время измерения
+            if (isMeasuring && analyser && freqArray && freqArray.length === bins) {
+                if (measurementPhase === 'before') {
+                    const liveAvg = buildAveragedSpec(foreverBeforeSpecSum, foreverBeforeCountFrames, bins);
+                    drawSmoothLine('rgba(229,57,53,0.95)', liveAvg);
+                } else {
+                    const liveAvg = buildAveragedSpec(foreverAfterSpecSum, foreverAfterCountFrames, bins);
+                    drawSmoothLine('rgba(1,100,79,0.95)', liveAvg);
+                }
+            }
+
+            // В статике рисуем ДО под ПОСЛЕ, чтобы зелёная была сверху
+            if (beforeSmoothed && beforeSmoothed.length === bins) {
+                drawSmoothLine('rgba(229,57,53,0.9)', beforeSmoothed);
+            }
+            if (afterSmoothed && afterSmoothed.length === bins) {
+                drawSmoothLine('rgba(1,100,79,0.95)', afterSmoothed);
+            }
+
+            // Теперь наносим риски и подписи поверх графиков
+            freqCtx.fillStyle = '#6b8488';
+            freqCtx.font = '12px Arial';
+            tickPositions.forEach(tp => {
+                const x = tp.x;
+                // риска снизу
+                freqCtx.strokeStyle = 'rgba(1,100,79,0.25)';
+                freqCtx.beginPath();
+                freqCtx.moveTo(x, height - 8);
+                freqCtx.lineTo(x, height);
+                freqCtx.stroke();
+                // подпись
+                const f = tp.f;
+                const label = f >= 1000 ? `${(f/1000).toFixed(f===1000||f===2000||f===5000||f===10000?0:1)}k` : `${f}`;
+                const textW = freqCtx.measureText(label).width;
+                const textX = Math.min(Math.max(0, x - textW / 2), width - textW);
+                freqCtx.fillText(label, textX, height - 10);
+            });
+
+            // Подсказки по ховеру отключены по требованию
+        }
+
+        // Интерактивность: ховер/тач
+        if (freqCanvas) {
+            window.addEventListener('resize', () => { 
+                initFreqCanvas(); 
+                // После изменения размера canvas перерисовываем застывшие графики
+                if (!isMeasuring && (beforeSmoothed || afterSmoothed)) {
+                    setTimeout(() => {
+                        const bins = beforeSmoothed ? beforeSmoothed.length : (afterSmoothed ? afterSmoothed.length : 2048);
+                        drawFrequencyResponse(new Uint8Array(bins));
+                    }, 50);
+                }
+            });
+            window.addEventListener('orientationchange', () => { 
+                setTimeout(() => {
+                    initFreqCanvas();
+                    // После изменения ориентации перерисовываем застывшие графики
+                    if (!isMeasuring && (beforeSmoothed || afterSmoothed)) {
+                        const bins = beforeSmoothed ? beforeSmoothed.length : (afterSmoothed ? afterSmoothed.length : 2048);
+                        drawFrequencyResponse(new Uint8Array(bins));
+                    }
+                }, 100); 
+            });
+            setTimeout(initFreqCanvas, 0);
+        }
+        
+        // Включаем анимацию пульсации при первой загрузке
+        toggleBtn.classList.add('pulse-attention');
+    </script>
+</body>
+</html>
