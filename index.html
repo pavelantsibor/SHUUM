@@ -2109,8 +2109,8 @@
             setTimeout(initFreqCanvas, 500);
         });
         resetBtn.addEventListener('click', () => {
-            const label = resetBtn.textContent.trim();
-            if (label === 'Стоп') {
+            const label = resetBtn.textContent.trim().toLowerCase();
+            if (label === 'стоп') {
                 // Остановить текущее измерение
                 stopMeter();
                 return;
@@ -2130,12 +2130,12 @@
             avgAfterVal = null;
             measurementPhase = 'before';
             forcePhaseBeforeOnNextStart = true;
-            avgBeforeEl.textContent = 'До: -- dB';
-            avgAfterEl.textContent = 'После: -- dB';
-            diffElement.textContent = 'Разница: -- dB';
-            toggleBtn.textContent = 'Старт';
+            if (avgBeforeEl) avgBeforeEl.textContent = 'До: -- dB';
+            if (avgAfterEl) avgAfterEl.textContent = 'После: -- dB';
+            if (diffElement) diffElement.textContent = 'Разница: -- dB';
+            toggleBtn.textContent = 'СТАРТ';
             toggleBtn.style.display = 'inline-block';
-            resetBtn.textContent = 'Стоп';
+            resetBtn.textContent = 'СТОП';
             // Очистка полотна
             try {
                 const rect = freqCanvas.getBoundingClientRect();
@@ -2170,9 +2170,9 @@
                     afterSmoothed = null;
                     avgBeforeVal = null;
                     avgAfterVal = null;
-                    avgBeforeEl.textContent = 'До: -- dB';
-                    avgAfterEl.textContent = 'После: -- dB';
-                    diffElement.textContent = 'Разница: -- dB';
+                    if (avgBeforeEl) avgBeforeEl.textContent = 'До: -- dB';
+                    if (avgAfterEl) avgAfterEl.textContent = 'После: -- dB';
+                    if (diffElement) diffElement.textContent = 'Разница: -- dB';
                     // Сбрасываем данные сценарного режима
                     scenarioBeforePowers = new Array(SCENARIO_SOUNDS_COUNT).fill(0);
                     scenarioBeforeCounts = new Array(SCENARIO_SOUNDS_COUNT).fill(0);
@@ -2246,20 +2246,14 @@
                 // Сброс накопителей для нового замера
                 sumRms2 = 0;
                 countFrames = 0;
-                avgElement.textContent = 'Среднее: -- dB';
+                if (avgElement) avgElement.textContent = 'Среднее: -- dB';
                 showDuration(measurementLimitSec);
-                diffElement.textContent = 'Разница: -- dB';
+                if (diffElement) diffElement.textContent = 'Разница: -- dB';
                 startTimeMs = Date.now();
                 endTimeMs = startTimeMs + measurementLimitSec * 1000;
                 isMeasuring = true;
                 // Убираем выделение среднего при новом замере
-                avgElement.classList.remove('highlight');
-                // Инициализируем целевую строку средней в зависимости от фазы
-                if (measurementPhase === 'before') {
-                    avgBeforeEl.textContent = 'До: -- dB';
-                } else {
-                    avgAfterEl.textContent = 'После: -- dB';
-                }
+                if (avgElement) avgElement.classList.remove('highlight');
                 // Инициализируем канвас спектра под экран
                 initFreqCanvas();
                 // Сброс буфера спектров
@@ -2327,9 +2321,9 @@
 
                 // Энергетическое усреднение и вывод в соответствующую строку (ДО/ПОСЛЕ)
                 if (isMeasuring) {
-                    // avgDisplayed уже вычислен как LAeq по 1/3-октавам
-                    if (measurementPhase === 'before') avgBeforeEl.textContent = `До: ${avgDisplayed.toFixed(1)} dB`;
-                    else avgAfterEl.textContent = `После: ${avgDisplayed.toFixed(1)} dB`;
+                    // avgDisplayed уже вычислен как LAeq по 1/3-октавам (оставлено для возможного будущего UI)
+                    if (measurementPhase === 'before' && avgBeforeEl) avgBeforeEl.textContent = `До: ${avgDisplayed.toFixed(1)} dB`;
+                    else if (measurementPhase === 'after' && avgAfterEl) avgAfterEl.textContent = `После: ${avgDisplayed.toFixed(1)} dB`;
                     const elapsed = Math.floor((Date.now() - startTimeMs) / 1000);
                     const remaining = Math.max(0, measurementLimitSec - elapsed);
                     const remainingStr = String(remaining);
@@ -2459,13 +2453,13 @@
                     meanPower = foreverBeforeCountFrames > 0 ? (foreverBeforeSumRms2 / foreverBeforeCountFrames) : 0;
                     avg = meanPower > 0 ? 10 * Math.log10(meanPower) + 100 : 0;
                     avgBeforeVal = Number(avg.toFixed(1));
-                    avgBeforeEl.textContent = `До: ${avgBeforeVal.toFixed(1)} dB`;
+                    if (avgBeforeEl) avgBeforeEl.textContent = `До: ${avgBeforeVal.toFixed(1)} dB`;
                 } else {
                     meanPower = foreverAfterCountFrames > 0 ? (foreverAfterSumRms2 / foreverAfterCountFrames) : 0;
                     avg = meanPower > 0 ? 10 * Math.log10(meanPower) + 100 : 0;
                     avgAfterVal = Number(avg.toFixed(1));
-                    avgAfterEl.textContent = `После: ${avgAfterVal.toFixed(1)} dB`;
-                    if (avgBeforeVal !== null) {
+                    if (avgAfterEl) avgAfterEl.textContent = `После: ${avgAfterVal.toFixed(1)} dB`;
+                    if (avgBeforeVal !== null && diffElement) {
                         const diffDb = avgAfterVal - avgBeforeVal;
                         const powerRatio = Math.pow(10, diffDb / 10);
                         const percent = (powerRatio - 1) * 100;
@@ -2475,16 +2469,24 @@
                 }
 
                 // В сценарном режиме дополнительно считаем отдельные уровни для 4 шумов
+                // и обновляем их на каждом кадре, чтобы столбики двигались в реальном времени
                 if (SCENARIO_MODE_ENABLED) {
-                    const srcPowers = (measurementPhase === 'before') ? scenarioBeforePowers : scenarioAfterPowers;
-                    const srcCounts = (measurementPhase === 'before') ? scenarioBeforeCounts : scenarioAfterCounts;
-                    const dstDb = (measurementPhase === 'before') ? scenarioBeforeDb : scenarioAfterDb;
+                    const srcPowersBefore = scenarioBeforePowers;
+                    const srcCountsBefore = scenarioBeforeCounts;
+                    const srcPowersAfter = scenarioAfterPowers;
+                    const srcCountsAfter = scenarioAfterCounts;
                     for (let i = 0; i < SCENARIO_SOUNDS_COUNT; i++) {
-                        if (srcCounts[i] > 0 && srcPowers[i] > 0) {
-                            const meanP = srcPowers[i] / srcCounts[i];
-                            dstDb[i] = 10 * Math.log10(meanP) + 100;
+                        if (srcCountsBefore[i] > 0 && srcPowersBefore[i] > 0) {
+                            const meanP = srcPowersBefore[i] / srcCountsBefore[i];
+                            scenarioBeforeDb[i] = 10 * Math.log10(meanP) + 100;
                         } else {
-                            dstDb[i] = null;
+                            scenarioBeforeDb[i] = null;
+                        }
+                        if (srcCountsAfter[i] > 0 && srcPowersAfter[i] > 0) {
+                            const meanP2 = srcPowersAfter[i] / srcCountsAfter[i];
+                            scenarioAfterDb[i] = 10 * Math.log10(meanP2) + 100;
+                        } else {
+                            scenarioAfterDb[i] = null;
                         }
                     }
                 }
@@ -2532,14 +2534,14 @@
             // Переключаем фазу и управляем подписями кнопок
             if (measurementPhase === 'before') {
                 measurementPhase = 'after';
-                toggleBtn.textContent = 'Старт';
-                resetBtn.textContent = 'Стоп';
+                toggleBtn.textContent = 'СТАРТ';
+                resetBtn.textContent = 'СТОП';
                 toggleBtn.style.display = 'inline-block';
             } else {
                 // Завершили фазу «после» — предлагаем "Завершить" и подготовим новый цикл
                 measurementPhase = 'before';
                 toggleBtn.style.display = 'none';
-                resetBtn.textContent = 'Завершить';
+                resetBtn.textContent = 'ЗАВЕРШИТЬ';
                 // Установим флаг, чтобы следующий "Старт" всегда начинал с ДО
                 forcePhaseBeforeOnNextStart = true;
             }
@@ -2572,15 +2574,15 @@
             measurementPhase = 'before';
             forcePhaseBeforeOnNextStart = true;
             // Сброс UI
-            avgBeforeEl.textContent = 'До: -- dB';
-            avgAfterEl.textContent = 'После: -- dB';
-            diffElement.textContent = 'Разница: -- dB';
+            if (avgBeforeEl) avgBeforeEl.textContent = 'До: -- dB';
+            if (avgAfterEl) avgAfterEl.textContent = 'После: -- dB';
+            if (diffElement) diffElement.textContent = 'Разница: -- dB';
             hideDuration();
-            toggleBtn.textContent = 'Старт';
+            toggleBtn.textContent = 'СТАРТ';
             toggleBtn.classList.remove('stop');
             toggleBtn.disabled = false; // гарантируем, что старт снова активен
             toggleBtn.style.display = 'inline-block'; // показываем кнопку снова
-            resetBtn.textContent = 'Стоп';
+            resetBtn.textContent = 'СТОП';
             // Включаем анимацию пульсации для привлечения внимания
             toggleBtn.classList.add('pulse-attention');
             // Очистка графика
@@ -2617,6 +2619,7 @@
         });
 
         function renderHistory() {
+            if (!historyListEl) return;
             historyListEl.innerHTML = '';
             if (!history.length) return;
             history.forEach(item => {
@@ -2642,7 +2645,7 @@
             history = [];
             saveHistory();
             renderHistory();
-            clearHistoryBtn.disabled = true;
+            if (clearHistoryBtn) clearHistoryBtn.disabled = true;
         }
 
         // ====== Спектр (АЧХ) ======
