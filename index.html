@@ -121,34 +121,11 @@
         }
         
         /* Метрики ДО/ПОСЛЕ/РАЗНИЦА - крупно и жирно */
-        .fs #avgBefore { 
-            text-align: left; 
-            font-size: 75px;
-            font-weight: 900;
-            margin: 8px 0 0 0;
-            color: var(--danger);
-            line-height: 1.0;
-        }
-        .fs #avgAfter { 
-            text-align: left; 
-            font-size: 75px;
-            font-weight: 900;
-            margin: 8px 0 0 0;
-            color: var(--accent);
-            line-height: 1.0;
-        }
+        /* Старые крупные подписи ДО/ПОСЛЕ/РАЗНИЦА скрываем в новом дизайне */
+        .fs #avgBefore,
+        .fs #avgAfter,
         .fs #diff {
-            text-align: left; 
-            font-size: 45px;
-            font-weight: 900;
-            margin: 8px 0 0 0;
-            color: #ffffff;
-            background-color: #585858;
-            padding: 10px 15px;
-            border-radius: 8px;
-            line-height: 1.0;
-            white-space: nowrap;
-            display: inline-block;
+            display: none !important;
         }
         
         /* Правая колонка - управление */
@@ -234,28 +211,12 @@
             color: #486267;
             text-align: center;
         }
-        #avg {
-            font-size: clamp(28px, 6vw, 48px);
-            font-weight: 700;
-            color: var(--accent);
-            margin: 10px 0 4px 0;
-        }
-        #avgBefore, #avgAfter {
-            font-size: clamp(22px, 5.5vw, 40px);
-            font-weight: 800;
-            margin: 6px 0 2px 0;
-        }
-        #avgBefore { color: var(--danger); }
-        #avgAfter { color: var(--accent); }
+        /* Старые текстовые показатели скрываем во всех режимах */
+        #avg,
+        #avgBefore,
+        #avgAfter,
         #diff {
-            font-size: clamp(18px, 5vw, 32px);
-            font-weight: 600;
-            color: #ffffff;
-            background-color: #585858;
-            padding: 8px 12px;
-            border-radius: 6px;
-            margin: 6px 0 14px 0;
-            display: inline-block;
+            display: none !important;
         }
         #duration {
             font-size: 18px;
@@ -1004,16 +965,18 @@
         </div>
         <div class="bottom-area">
             <div class="measurements-column">
-                <div id="avgBefore">До: -- dB</div>
-                <div id="avgAfter">После: -- dB</div>
-                <div id="diff">Разница: -- dB</div>
-                <div id="avg" style="display:none">Среднее: -- dB</div>
+                <div style="font-size:16px; color:#425055; font-weight:600; margin-bottom:4px;">
+                    4 вида шума: ДО (красный) / ПОСЛЕ (зелёный)
+                </div>
+                <div style="font-size:13px; color:#6b8488; max-width:260px; line-height:1.3;">
+                    Нажмите «СТАРТ» — приложение последовательно проиграет перфоратор, стук, пылесос и плач ребёнка и покажет уровни до и после шумоизоляции.
+                </div>
             </div>
             <div class="controls-panel">
                 <div id="duration" class="hidden"></div>
                 <div class="row">
-                    <button id="toggleBtn">Старт</button>
-                    <button id="resetBtn">Стоп</button>
+                    <button id="toggleBtn">СТАРТ</button>
+                    <button id="resetBtn">СТОП</button>
                 </div>
             </div>
         </div>
